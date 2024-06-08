@@ -153,11 +153,16 @@ yarn_node_modules() {
 
 yarn_2_install() {
   local build_dir=${1:-}
+  local production=${YARN_PRODUCTION:-false}
 
   echo "Running 'yarn install' with yarn.lock"
   cd "$build_dir" || return
 
-  monitor "yarn-2-install" yarn install --immutable 2>&1
+  if [ "$production" == "production" ]; then
+    monitor "yarn-2-install" yarn workspaces focus --production 2>&1
+  else
+    monitor "yarn-2-install" yarn install --immutable 2>&1
+  fi
 }
 
 yarn_prune_devdependencies() {
