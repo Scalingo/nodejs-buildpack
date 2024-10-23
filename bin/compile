@@ -348,11 +348,11 @@ install_mongocryptd() {
   curl -L "$MONGOCRYPTD_URL" | tar -xz -C "$MONGOCRYPTD_DIR"
 
   # Set permissions
-  chmod +x "$MONGOCRYPTD_DIR/bin/mongocryptd"
+  chmod +x "$MONGOCRYPTD_DIR/mongodb-linux-x86_64-enterprise-ubuntu2404-8.0.1/bin/mongocryptd"
 
   # Add mongocryptd to PATH
-  export PATH="$MONGOCRYPTD_DIR/bin:$PATH"
-  echo "mongocryptd installed at $MONGOCRYPTD_DIR/bin/mongocryptd"
+  export PATH="$MONGOCRYPTD_DIR/mongodb-linux-x86_64-enterprise-ubuntu2404-8.0.1/bin:$PATH"
+  echo "mongocryptd installed at $MONGOCRYPTD_DIR/mongodb-linux-x86_64-enterprise-ubuntu2404-8.0.1/bin/mongocryptd"
 }
 
 header "Installing binaries" | output "$LOG_FILE"
