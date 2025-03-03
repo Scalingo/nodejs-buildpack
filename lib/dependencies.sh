@@ -147,6 +147,7 @@ yarn_prune_devdependencies() {
   local build_dir=${1:-}
   local cache_dir=${2:-}
   local buildpack_dir=${3:-}
+  local production=${YARN_PRUNE_PRODUCTION:-false}
 
   if [ "$NODE_ENV" == "test" ]; then
     echo "Skipping because NODE_ENV is 'test'"
@@ -173,7 +174,9 @@ yarn_prune_devdependencies() {
     build_data::set_raw "skipped_prune" "false"
   else
     cd "$build_dir" || return
-    monitor "prune_dev_dependencies" yarn install --frozen-lockfile --ignore-engines --ignore-scripts --prefer-offline 2>&1
+    # yarn won't prune devDependencies if node_modules present see https://github.com/yarnpkg/yarn/issues/6373
+    monitor "remove-dependencies" rm -rf node_modules 2>&1
+    monitor "prune_dev_dependencies" yarn install --production="$production" --frozen-lockfile --ignore-engines --prefer-offline 2>&1
     build_data::set_raw "skipped_prune" "false"
   fi
 }
