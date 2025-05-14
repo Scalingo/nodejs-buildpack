@@ -478,7 +478,7 @@ fail_corepack_not_available() {
     of Node.js used in this build is $node_version which does not support Corepack.
 
     To use Corepack, update your Node.js version:
-    https://devcenter.heroku.com/articles/nodejs-support#specifying-a-node-js-version
+    https://doc.scalingo.com/languages/nodejs/start#specifying-a-nodejs-version
   "
   fail
 }
@@ -491,7 +491,7 @@ log_other_failures() {
     meta_set "failure" "libc6-incompatibility"
     warn "This Node.js version is not compatible with the current stack.
 
-       For Node.js versions 18 and greater, scalingo-20 or newer is required.
+       For Node.js versions 18 and greater, scalingo-22 or newer is required.
        Consider updating to a stack that is compatible with the Node.js version
        or pinning the Node.js version to be compatible with the current
        stack."
@@ -783,7 +783,7 @@ warn_old_npm() {
   npm_version="$(npm --version)"
 
   if [ "$(npm_version_major)" -lt "2" ]; then
-    warning "This version of npm ($npm_version) has several known issues. Please update your npm version in package.json." "https://devcenter.heroku.com/articles/nodejs-support#specifying-an-npm-version"
+    warning "This version of npm ($npm_version) has several known issues. Please update your npm version in package.json." "https://doc.scalingo.com/languages/nodejs/start#specifying-a-nodejs-version"
     mcount 'warnings.npm.old'
   fi
 }
@@ -948,8 +948,7 @@ fail_corepack_install_invalid_hash() {
 
        > corepack use $package_manager_name@$package_manager_version
 
-       Then commit and push the changes to package.json." \
-    "https://devcenter.heroku.com/articles/nodejs-support#specifying-a-$package_manager_name-version"
+       Then commit and push the changes to package.json."
   fail
 }
 
@@ -970,8 +969,7 @@ fail_corepack_install_invalid_version() {
 
        > npm show '$package_manager' versions
 
-       Update the version specified field in package.json to a published $package_manager_name version" \
-    "https://devcenter.heroku.com/articles/nodejs-support#specifying-a-$package_manager_name-version"
+       Update the version specified field in package.json to a published $package_manager_name version"
   fail
 }
 
@@ -1030,7 +1028,7 @@ warn_about_node_version_22_5_0() {
 
        Shortly after the release of Node.js v22.5.0, users began reporting issues around broken
        or hanging installs for npm and Yarn. To avoid experiencing these problems with your builds 
-       on Heroku, we recommend avoiding this release version until a fix has been released by 
+       on Scalingo, we recommend avoiding this release version until a fix has been released by 
        pinning to an earlier version of Node.js (e.g.; 22.4.1).
   " "https://github.com/nodejs/node/pull/53934"
   mcount 'warnings.node.22-5-0'
