@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 # bin/release <build-dir>
 
-build_dir=$1
+BUILD_DIR=${1:-}
 
 if [ -d "$1/.meteor" ] ; then
-  cat << EOF
-addons: ["scalingo-mongodb:free"]
+	cat << EOF
+addons: ["mongo-sandbox"]
 default_process_types:
   web: ./.start-meteor-app
 EOF
-
 else
-  cat << EOF
+	if [ -f "$BUILD_DIR/Procfile" ] && grep -q -e "^\s*mcp.*:" "$BUILD_DIR/Procfile"; then
+		cat << EOF
+addons: []
+default_process_types: {}
+EOF
+	else
+		cat << EOF
 addons: []
 default_process_types:
   web: npm start
 EOF
+	fi
 fi
