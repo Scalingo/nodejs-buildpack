@@ -35,8 +35,8 @@ install_yarn() {
     package_name=$([ "$major_version" -ge 2 ] && echo "@yarnpkg/cli-dist" || echo "yarn")
     if ! suppress_output npm install --unsafe-perm --quiet --no-audit --no-progress -g "$package_name@$version"; then
       echo "Unable to install yarn $version. " \
-        "Does yarn $version exist? (https://help.heroku.com/8MEL050H) " \
-        "Is $version valid semver? (https://help.heroku.com/0ZIOF3ST) " \
+        "Does yarn $version exist? " \
+        "Is $version valid semver? " \
         "Is yarn $version compatible with this Node.js version?" \ && false
     fi
   fi

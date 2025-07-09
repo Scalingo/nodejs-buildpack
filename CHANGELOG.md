@@ -18,6 +18,15 @@
 ## [Unreleased]
 
 
+## [v298] - 2025-06-25
+
+- Added Node.js version 24.3.0.
+- Added Node.js version 22.17.0.
+
+## [v297] - 2025-06-23
+
+- Added Node.js version 20.19.3.
+
 ## [v296] - 2025-06-12
 
 - Remove inventory-based resolver for Yarn. ([#1420](https://github.com/heroku/heroku-buildpack-nodejs/pull/1420))
@@ -1090,7 +1099,9 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v296...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v298...main
+[v298]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v297...v298
+[v297]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v296...v297
 [v296]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v295...v296
 [v295]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v294...v295
 [v294]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v293...v294
