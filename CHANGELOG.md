@@ -18,6 +18,11 @@
 ## [Unreleased]
 
 
+## [v299] - 2025-07-09
+
+- Added Node.js version 24.4.0.
+- Handle complex Yarn engine requirements. ([#1433](https://github.com/heroku/heroku-buildpack-nodejs/pull/1433))
+
 ## [v298] - 2025-06-25
 
 - Added Node.js version 24.3.0.
@@ -29,7 +34,7 @@
 
 ## [v296] - 2025-06-12
 
-- Remove inventory-based resolver for Yarn. ([#1420](https://github.com/heroku/heroku-buildpack-nodejs/pull/1420))
+- Remove inventory-based resolver for Yarn. Customers may notice the location of the Yarn binary is now at `/app/.heroku/node/bin/yarn` where, previously, it was found at `/app/.heroku/yarn/bin/yarn`. ([#1420](https://github.com/heroku/heroku-buildpack-nodejs/pull/1420))
 - Added Node.js version 24.2.0.
 
 ## [v295] - 2025-05-21
@@ -1099,7 +1104,8 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v298...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v299...main
+[v299]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v298...v299
 [v298]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v297...v298
 [v297]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v296...v297
 [v296]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v295...v296
