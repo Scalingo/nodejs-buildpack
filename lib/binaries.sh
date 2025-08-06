@@ -63,7 +63,7 @@ install_nodejs() {
     echo "Resolving node version $version..."
     resolve_result=$(resolve node "$version" || echo "failed")
 
-    read -r number url < <(echo "$resolve_result")
+    read -r number url checksum_name digest < <(echo "$resolve_result")
 
     if [[ "$resolve_result" == "failed" ]]; then
       fail_bin_install node "$version"
@@ -76,11 +76,27 @@ install_nodejs() {
     fi
   fi
 
-  code=$(curl "$url" -L --silent --fail --retry 5 --retry-max-time 15 --retry-connrefused --connect-timeout 5 -o /tmp/node.tar.gz --write-out "%{http_code}")
+  output_file="/tmp/node.tar.gz"
+  code=$(curl "$url" -L --silent --fail --retry 5 --retry-max-time 15 --retry-connrefused --connect-timeout 5 -o "$output_file" --write-out "%{http_code}")
 
   if [ "$code" != "200" ]; then
     echo "Unable to download node: $code" && false
   fi
+
+  if [[ -z "$NODE_BINARY_URL" ]]; then
+    case "$checksum_name" in
+      "sha256")
+        echo "Validating checksum"
+        if ! echo "$digest $output_file" | sha256sum --check --status; then
+          echo "Checksum validation failed for Node.js $number - $checksum_name:$digest" && false
+        fi
+        ;;
+      *)
+        echo "Unsupported checksum for Node.js $number - $checksum_name:$digest" && false
+        ;;
+    esac
+  fi
+
   rm -rf "${dir:?}"/*
   tar xzf /tmp/node.tar.gz --strip-components 1 -C "$dir"
   chmod +x "$dir"/bin/*

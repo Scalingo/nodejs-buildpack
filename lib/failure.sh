@@ -148,16 +148,7 @@ fail_multiple_lockfiles() {
        - ${lockfiles["Yarn"]}
        - ${lockfiles["pnpm"]}
 
-       Please delete the lockfile(s) that should not be in use:
-
-       - If you are using npm:
-
-         $ git rm yarn.lock
-
-       - If you are using yarn:
-
-         $ git rm package-lock.json
-
+       Please delete the lockfile(s) that should not be in use.
     " "https://doc.scalingo.com/languages/javascript/nodejs/#dependencies-installation"
     fail
   fi
@@ -543,7 +534,7 @@ log_other_failures() {
     return 0
   fi
 
-  if grep -qi "console.error\(\`a bug known to break npm" "$log_file"; then
+  if grep -qi "console.error(\`a bug known to break npm" "$log_file"; then
     mcount "failures.old-node-new-npm"
     meta_set "failure" "old-node-new-npm"
     return 0
@@ -713,6 +704,19 @@ log_other_failures() {
   if grep -q 'at [^ ]* \([^ ]*:\d*\d*\)' "$log_file"; then
     mcount "failures.unknown-stacktrace"
     meta_set "failure" "unknown-stacktrace"
+    return 0
+  fi
+
+  # checksum errors
+  if grep -q "Checksum validation failed" "$log_file"; then
+    mcount "failures.checksum-validation-failed"
+    meta_set "failure" "checksum-validation-failed"
+    return 0
+  fi
+
+  if grep -q "Unsupported checksum" "$log_file"; then
+    mcount "failures.unsupported-checksum"
+    meta_set "failure" "unsupported-checksum"
     return 0
   fi
 
