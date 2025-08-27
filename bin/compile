@@ -476,7 +476,6 @@ if test -n "$meteor_version"; then
   build_meteor_app $BUILD_DIR $CACHE_DIR
 fi
 
-meta_set "build-step" "cleanup-script"
 run_cleanup_script "$BUILD_DIR" | output "$LOG_FILE"
 
 summarize_build() {
