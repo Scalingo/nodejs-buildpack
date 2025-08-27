@@ -7,7 +7,7 @@ monitor_memory_usage() {
   shift
 
   # Run the command in the background
-  "${@:-}" &
+  "${@:-}" 2>&1 &
 
   # save the PID of the running command
   pid=$!
@@ -50,14 +50,11 @@ monitor() {
   local command=( "$@" )
 
   peak_mem_output=$(mktemp)
-  start=$(nowms)
+  start=$(build_data::current_unix_realtime)
 
   # execute the subcommand and save the peak memory usage
   monitor_memory_usage "$peak_mem_output" "${command[@]}"
 
-  mtime "exec.$command_name.time" "${start}"
-  mmeasure "exec.$command_name.memory" "$(cat "$peak_mem_output")"
-
-  meta_time "$command_name-time" "$start"
-  meta_set "$command_name-memory" "$(cat "$peak_mem_output")"
+  build_data::set_duration "${command_name}_time" "$start"
+  build_data::set_raw "${command_name}_memory" "$(cat "$peak_mem_output")"
 }
