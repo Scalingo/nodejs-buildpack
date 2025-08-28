@@ -61,7 +61,6 @@ restore_default_cache_directories() {
         # Older versions of the buildpack may have created nested yarn caches.
         # This will remove the nested cache. This correction may be removed in
         # the near future.
-        meta_set "yarn_nested_cache" "true"
         rm -rf "$yarn_cache_dir/yarn"
       fi
       echo "- yarn cache"
@@ -73,7 +72,7 @@ restore_default_cache_directories() {
       rm -rf "$pnpm_cache_dir"
       mv "$cache_dir/node/cache/pnpm" "$pnpm_cache_dir"
       echo "- pnpm cache"
-      meta_set "pnpm_cache" "true"
+      build_data::set_raw "pnpm_cache" "true"
     else
       echo "- pnpm cache (not cached - skipping)"
     fi
@@ -82,7 +81,7 @@ restore_default_cache_directories() {
       rm -rf "$npm_cache"
       mv "$cache_dir/node/cache/npm" "$npm_cache"
       echo "- npm cache"
-      meta_set "npm_cache" "true"
+      build_data::set_raw "npm_cache" "true"
     else
       echo "- npm cache (not cached - skipping)"
     fi
@@ -172,21 +171,21 @@ save_default_cache_directories() {
       cp -a "$build_dir/node_modules" "$(dirname "$cache_dir/node/cache/node_modules")"
     else
       # this can happen if there are no dependencies
-      mcount "cache.no-node-modules"
       echo "- node_modules (nothing to cache)"
     fi
   fi
 
   # bower_components
   if [[ -e "$build_dir/bower_components" ]]; then
-    mcount "cache.saved-bower-components"
-    meta_set "cached-bower-components" "true"
+    build_data::set_raw "has_cached_bower_components" "true"
     echo "- bower_components"
     mkdir -p "$cache_dir/node/cache/bower_components"
     cp -a "$build_dir/bower_components" "$(dirname "$cache_dir/node/cache/bower_components")"
+  else
+    build_data::set_raw "has_cached_bower_components" "false"
   fi
 
-  meta_set "node-custom-cache-dirs" "false"
+  build_data::set_raw "has_custom_cache_dirs" "false"
 }
 
 save_custom_cache_directories() {
@@ -208,7 +207,7 @@ save_custom_cache_directories() {
     fi
   done
 
-  meta_set "node-custom-cache-dirs" "true"
+  build_data::set_raw "has_custom_cache_dirs" "true"
 }
 
 DEFAULT_PNPM_PRUNE_COUNTER_VALUE="40"

@@ -18,6 +18,26 @@
 ## [Unreleased]
 
 
+## [v307] - 2025-08-26
+
+- Switch metrics to use new JSON-based data store. ([#1470](https://github.com/heroku/heroku-buildpack-nodejs/pull/1470))
+
+## [v306] - 2025-08-21
+
+- Rollback to v304 functionality due to increase in `bin/report` failures.
+
+## [v305] - 2025-08-21
+
+- Fix control code escaping for buildpack metrics. ([#1464](https://github.com/heroku/heroku-buildpack-nodejs/pull/1464))
+- Add `node_version_major` to buildpack metrics. ([#1465](https://github.com/heroku/heroku-buildpack-nodejs/pull/1465))
+- Cleanup of buildpack metrics and report. ([#1466](https://github.com/heroku/heroku-buildpack-nodejs/pull/1466))
+
+## [v304] - 2025-08-15
+
+- Added Node.js 24.6.0 (linux-amd64)
+- Fix escaping for buildpack metrics. ([#1451](https://github.com/heroku/heroku-buildpack-nodejs/pull/1451))
+- Remove calls to unsupported metrics format (i.e.; `mcount`, `mtime`, `mmeasure`) ([#1454](https://github.com/heroku/heroku-buildpack-nodejs/pull/1454)) 
+
 ## [v303] - 2025-08-05
 
 - Fix for checksum validation error when `NODE_BINARY_URL` is used. ([#1447](https://github.com/heroku/heroku-buildpack-nodejs/pull/1447))
@@ -1123,7 +1143,10 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v303...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v307...main
+[v307]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v306...v307
+[v305]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v304...v305
+[v304]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v303...v304
 [v303]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v302...v303
 [v302]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v301...v302
 [v301]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v300...v301

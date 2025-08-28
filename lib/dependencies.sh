@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
 
-measure_size() {
-  (du -s node_modules 2>/dev/null || echo 0) | awk '{print $1}'
-}
-
 list_dependencies() {
   local build_dir="$1"
 
@@ -25,20 +21,21 @@ run_if_present() {
 
   has_script_name=$(has_script "$build_dir/package.json" "$script_name")
   script=$(read_json "$build_dir/package.json" ".scripts[\"$script_name\"]")
+  monitor_name="${script_name//[^[:alnum:]]/_}_script"
 
   if [[ "$has_script_name" == "true" ]]; then
     if $YARN || $YARN_2; then
       echo "Running $script_name (yarn)"
       # yarn will throw an error if the script is an empty string, so check for this case
       if [[ -n "$script" ]]; then
-        monitor "${script_name}-script" yarn run "$script_name"
+        monitor "${monitor_name}" yarn run "$script_name"
       fi
     elif $PNPM; then
       echo "Running $script_name"
-      monitor "${script_name}-script" pnpm run --if-present "$script_name"
+      monitor "${monitor_name}" pnpm run --if-present "$script_name"
     else
       echo "Running $script_name"
-      monitor "${script_name}-script" npm run "$script_name" --if-present
+      monitor "${monitor_name}" npm run "$script_name" --if-present
     fi
   fi
 }
@@ -63,26 +60,26 @@ run_build_if_present() {
       if [[ -n "$script" ]]; then
         if [[ -n $NODE_BUILD_FLAGS ]]; then
           echo "Running with $NODE_BUILD_FLAGS flags"
-          monitor "${script_name}-script" yarn run "$script_name" "$NODE_BUILD_FLAGS"
+          monitor "build_script" yarn run "$script_name" "$NODE_BUILD_FLAGS"
         else
-          monitor "${script_name}-script" yarn run "$script_name"
+          monitor "build_script" yarn run "$script_name"
         fi
       fi
     elif $PNPM; then
       echo "Running $script_name"
       if [[ -n $NODE_BUILD_FLAGS ]]; then
         echo "Running with $NODE_BUILD_FLAGS flags"
-        monitor "${script_name}-script" pnpm run --if-present "$script_name" -- "$NODE_BUILD_FLAGS"
+        monitor "build_script" pnpm run --if-present "$script_name" -- "$NODE_BUILD_FLAGS"
       else
-        monitor "${script_name}-script" pnpm run --if-present "$script_name"
+        monitor "build_script" pnpm run --if-present "$script_name"
       fi
     else
       echo "Running $script_name"
       if [[ -n $NODE_BUILD_FLAGS ]]; then
         echo "Running with $NODE_BUILD_FLAGS flags"
-        monitor "${script_name}-script" npm run "$script_name" --if-present -- "$NODE_BUILD_FLAGS"
+        monitor "build_script" npm run "$script_name" --if-present -- "$NODE_BUILD_FLAGS"
       else
-        monitor "${script_name}-script" npm run "$script_name" --if-present
+        monitor "build_script" npm run "$script_name" --if-present
       fi
     fi
   fi
@@ -95,7 +92,6 @@ run_prebuild_script() {
   has_scalingo_prebuild_script=$(has_script "$build_dir/package.json" "scalingo-prebuild")
 
   if [[ "$has_scalingo_prebuild_script" == "true" ]]; then
-    mcount "script.scalingo-prebuild"
     header "Prebuild"
     run_if_present "$build_dir" 'scalingo-prebuild'
   fi
@@ -109,13 +105,10 @@ run_build_script() {
   has_scalingo_build_script=$(has_script "$build_dir/package.json" "scalingo-postbuild")
   if [[ "$has_scalingo_build_script" == "true" ]] && [[ "$has_build_script" == "true" ]]; then
     echo "Detected both \"build\" and \"scalingo-postbuild\" scripts"
-    mcount "scripts.scalingo-postbuild-and-build"
     run_if_present "$build_dir" 'scalingo-postbuild'
   elif [[ "$has_scalingo_build_script" == "true" ]]; then
-    mcount "scripts.scalingo-postbuild"
     run_if_present "$build_dir" 'scalingo-postbuild'
   elif [[ "$has_build_script" == "true" && "$NPM_NO_BUILD" != "true" ]]; then
-    mcount "scripts.build"
     run_build_if_present "$build_dir" 'build'
   fi
 }
@@ -127,19 +120,9 @@ run_cleanup_script() {
   has_scalingo_cleanup_script=$(has_script "$build_dir/package.json" "scalingo-cleanup")
 
   if [[ "$has_scalingo_cleanup_script" == "true" ]]; then
-    mcount "script.scalingo-cleanup"
     header "Cleanup"
     run_if_present "$build_dir" 'scalingo-cleanup'
   fi
-}
-
-log_build_scripts() {
-  local build_dir=${1:-}
-
-  meta_set "build-script" "$(read_json "$build_dir/package.json" ".scripts[\"build\"]")"
-  meta_set "postinstall-script" "$(read_json "$build_dir/package.json" ".scripts[\"postinstall\"]")"
-  meta_set "scalingo-prebuild-script" "$(read_json "$build_dir/package.json" ".scripts[\"scalingo-prebuild\"]")"
-  meta_set "scalingo-postbuild-script" "$(read_json "$build_dir/package.json" ".scripts[\"scalingo-postbuild\"]")"
 }
 
 yarn_node_modules() {
@@ -148,7 +131,7 @@ yarn_node_modules() {
 
   echo "Installing node modules (yarn.lock)"
   cd "$build_dir" || return
-  monitor "yarn-install" yarn install --production="$production" --frozen-lockfile --ignore-engines --prefer-offline 2>&1
+  monitor "install_dependencies" yarn install --production="$production" --frozen-lockfile --ignore-engines --prefer-offline 2>&1
 }
 
 yarn_2_install() {
@@ -157,7 +140,7 @@ yarn_2_install() {
   echo "Running 'yarn install' with yarn.lock"
   cd "$build_dir" || return
 
-  monitor "yarn-2-install" yarn install --immutable 2>&1
+  monitor "install_dependencies" yarn install --immutable 2>&1
 }
 
 yarn_prune_devdependencies() {
@@ -167,31 +150,31 @@ yarn_prune_devdependencies() {
 
   if [ "$NODE_ENV" == "test" ]; then
     echo "Skipping because NODE_ENV is 'test'"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif [ "$NODE_ENV" != "production" ]; then
     echo "Skipping because NODE_ENV is not 'production'"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif [ -n "$YARN_PRODUCTION" ]; then
     echo "Skipping because YARN_PRODUCTION is '$YARN_PRODUCTION'"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif $YARN_2; then
     if [ "$YARN2_SKIP_PRUNING" == "true" ]; then
       echo "Skipping because YARN2_SKIP_PRUNING is '$YARN2_SKIP_PRUNING'"
-      meta_set "skipped-prune" "true"
+      build_data::set_raw "skipped_prune" "true"
       return 0
     fi
     cd "$build_dir" || return
     echo "Running 'yarn heroku prune'"
     export YARN_PLUGINS="${buildpack_dir}/yarn2-plugins/prune-dev-dependencies/bundles/@yarnpkg/plugin-prune-dev-dependencies.js"
-    monitor "yarn-prune" yarn heroku prune
-    meta_set "skipped-prune" "false"
+    monitor "prune_dev_dependencies" yarn heroku prune
+    build_data::set_raw "skipped_prune" "false"
   else
     cd "$build_dir" || return
-    monitor "yarn-prune" yarn install --frozen-lockfile --ignore-engines --ignore-scripts --prefer-offline 2>&1
-    meta_set "skipped-prune" "false"
+    monitor "prune_dev_dependencies" yarn install --frozen-lockfile --ignore-engines --ignore-scripts --prefer-offline 2>&1
+    build_data::set_raw "skipped_prune" "false"
   fi
 }
 
@@ -230,11 +213,11 @@ npm_node_modules() {
     cd "$build_dir" || return
 
     if [[ "$USE_NPM_INSTALL" == "false" ]]; then
-      meta_set "use-npm-ci" "true"
+      build_data::set_raw "use_npm_ci" "true"
       echo "Installing node modules"
-      monitor "npm-install" npm ci --production="$production" --unsafe-perm --userconfig "$build_dir/.npmrc" 2>&1
+      monitor "install_dependencies" npm ci --production="$production" --unsafe-perm --userconfig "$build_dir/.npmrc" 2>&1
     else
-      meta_set "use-npm-ci" "false"
+      build_data::set_raw "use_npm_ci" "false"
       if [ -e "$build_dir/package-lock.json" ]; then
         echo "Installing node modules (package.json + package-lock)"
       elif [ -e "$build_dir/npm-shrinkwrap.json" ]; then
@@ -242,8 +225,7 @@ npm_node_modules() {
       else
         echo "Installing node modules (package.json)"
       fi
-      _install_preselected_modules
-      monitor "npm-install" npm install --production="$production" --unsafe-perm --userconfig "$build_dir/.npmrc" 2>&1
+      monitor "install_dependencies" npm install --production="$production" --unsafe-perm --userconfig "$build_dir/.npmrc" 2>&1
     fi
   else
     echo "Skipping (no package.json)"
@@ -251,6 +233,7 @@ npm_node_modules() {
 }
 
 _install_preselected_modules() {
+  #REMOVEME
   # Separe the modules names with '\n'
   preselected_modules="phantomjs"
   for module in $preselected_modules ; do
@@ -274,7 +257,7 @@ npm_rebuild() {
     else
       echo "Installing any new modules (package.json)"
     fi
-    monitor "npm-rebuild" npm install --production="$production" --unsafe-perm --userconfig "$build_dir/.npmrc" 2>&1
+    monitor "npm_rebuild" npm install --production="$production" --unsafe-perm --userconfig "$build_dir/.npmrc" 2>&1
   else
     echo "Skipping (no package.json)"
   fi
@@ -288,24 +271,23 @@ npm_prune_devdependencies() {
 
   if [ "$NODE_ENV" == "test" ]; then
     echo "Skipping because NODE_ENV is 'test'"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif [ "$NODE_ENV" != "production" ]; then
     echo "Skipping because NODE_ENV is not 'production'"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif [ -n "$NPM_CONFIG_PRODUCTION" ]; then
     echo "Skipping because NPM_CONFIG_PRODUCTION is '$NPM_CONFIG_PRODUCTION'"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif [ "$npm_version" == "5.3.0" ]; then
-    mcount "skip-prune-issue-npm-5.3.0"
     echo "Skipping because npm 5.3.0 fails when running 'npm prune' due to a known issue"
     echo "https://github.com/npm/npm/issues/17781"
     echo ""
     echo "You can silence this warning by updating to at least npm 5.7.1 in your package.json"
     echo "https://doc.scalingo.com/languages/nodejs/start#specifying-a-nodejs-version"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif [ "$npm_version" == "5.6.0" ] ||
        [ "$npm_version" == "5.5.1" ] ||
@@ -314,18 +296,17 @@ npm_prune_devdependencies() {
        [ "$npm_version" == "5.4.1" ] ||
        [ "$npm_version" == "5.2.0" ] ||
        [ "$npm_version" == "5.1.0" ]; then
-    mcount "skip-prune-issue-npm-5.6.0"
     echo "Skipping because npm $npm_version sometimes fails when running 'npm prune' due to a known issue"
     echo "https://github.com/npm/npm/issues/19356"
     echo ""
     echo "You can silence this warning by updating to at least npm 5.7.1 in your package.json"
     echo "https://doc.scalingo.com/languages/nodejs/start#specifying-a-nodejs-version"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   else
     cd "$build_dir" || return
-    monitor "npm-prune" npm prune --userconfig "$build_dir/.npmrc" 2>&1
-    meta_set "skipped-prune" "false"
+    monitor "prune_dev_dependencies" npm prune --userconfig "$build_dir/.npmrc" 2>&1
+    build_data::set_raw "skipped_prune" "false"
   fi
 }
 
@@ -336,7 +317,7 @@ pnpm_install() {
   echo "Running 'pnpm install' with pnpm-lock.yaml"
   cd "$build_dir" || return
 
-  monitor "pnpm-install" pnpm install --prod=false --frozen-lockfile 2>&1
+  monitor "install_dependencies" pnpm install --prod=false --frozen-lockfile 2>&1
 
   # prune the store when the counter reaches zero to clean up errant package versions which may have been upgraded/removed
   counter=$(load_pnpm_prune_store_counter "$cache_dir")
@@ -354,19 +335,19 @@ pnpm_prune_devdependencies() {
 
   if [ "$NODE_ENV" == "test" ]; then
     echo "Skipping because NODE_ENV is 'test'"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif [ "$NODE_ENV" != "production" ]; then
     echo "Skipping because NODE_ENV is not 'production'"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif [ "$PNPM_SKIP_PRUNING" == "true" ]; then
     echo "Skipping because PNPM_SKIP_PRUNING is '$PNPM_SKIP_PRUNING'"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   elif [ -f "$build_dir/pnpm-workspace.yaml" ] || [ -f "$build_dir/pnpm-workspace.yml" ]; then
     echo "Skipping because pruning is not supported for pnpm workspaces (https://pnpm.io/cli/prune)"
-    meta_set "skipped-prune" "true"
+    build_data::set_raw "skipped_prune" "true"
     return 0
   fi
 
@@ -390,7 +371,7 @@ pnpm_prune_devdependencies() {
          [ -n "$(read_json "$build_dir/package.json" ".scripts.postinstall")" ] ||
          [ -n "$(read_json "$build_dir/package.json" ".scripts.prepare")" ]; then
         warn_skipping_unsafe_pnpm_prune "$pnpm_version"
-        meta_set "skipped-prune" "true"
+        build_data::set_raw "skipped_prune" "true"
         return
       fi
   else
@@ -398,7 +379,7 @@ pnpm_prune_devdependencies() {
     pnpm_prune_args+=("--ignore-scripts")
   fi
 
-  pnpm "${pnpm_prune_args[@]}" 2>&1
+  monitor "prune_dev_dependencies" pnpm "${pnpm_prune_args[@]}" 2>&1
 
-  meta_set "skipped-prune" "false"
+  build_data::set_raw "skipped_prune" "false"
 }
