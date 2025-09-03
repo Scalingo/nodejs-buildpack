@@ -139,7 +139,7 @@ To install *dependencies and devDependencies:*
 scalingo -a app-name env-set NPM_CONFIG_PRODUCTION=false
 ```
 
-Default: `NPM_CONFIG_PRODUCTION` defaults to true on Scalingo
+Default: `NPM_CONFIG_PRODUCTION` defaults to false on Scalingo
 
 ### Configure npm with .npmrc
 
