@@ -18,6 +18,15 @@
 ## [Unreleased]
 
 
+## [v309] - 2025-09-04
+
+- Added Node.js 20.19.5 (linux-amd64)
+
+## [v308] - 2025-08-29
+
+- Added Node.js 24.7.0 (linux-amd64)
+- Added Node.js 22.19.0 (linux-amd64)
+
 ## [v307] - 2025-08-26
 
 - Switch metrics to use new JSON-based data store. ([#1470](https://github.com/heroku/heroku-buildpack-nodejs/pull/1470))
@@ -1143,7 +1152,9 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v307...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v309...main
+[v309]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v308...v309
+[v308]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v307...v308
 [v307]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v306...v307
 [v305]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v304...v305
 [v304]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v303...v304
