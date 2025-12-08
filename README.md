@@ -1,7 +1,7 @@
 Buildpack for Node.js, io.js And Meteor
 =======================================
 
-![nodejs](https://cloud.githubusercontent.com/assets/51578/13712672/efdf2a40-e792-11e5-82ef-492478cbc0dc.png)
+![nodejs](https://raw.githubusercontent.com/heroku/buildpacks/refs/heads/main/assets/images/buildpack-banner-node-js.png)
 
 This buildpack has been developped to deploy any node.js application
 or an application based on the Meteor Framework (0.9+).
