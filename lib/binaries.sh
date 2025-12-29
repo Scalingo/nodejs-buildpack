@@ -77,14 +77,12 @@ install_nodejs() {
       echo
       echo "! The requested Node.js version is using a wide range ($requested_version) that can resolve to a Node.js major version"
       echo "  higher than you intended. Limiting the requested range to a major LTS range like \`$lts_major_version.x\` is recommended."
-      echo "  https://devcenter.heroku.com/articles/nodejs-support#specifying-a-node-js-version"
     fi
 
     if [[ "$lts_upper_bound_enforced" == "true" ]]; then
       echo
       echo "! The resolved Node.js version has been limited to the Active LTS ($version) for the requested range of \`$requested_version\`."
       echo "  To opt-out of this behavior, set the following config var: \`NODEJS_ALLOW_WIDE_RANGE=true\`"
-      echo "  https://devcenter.heroku.com/articles/nodejs-support#supported-node-js-versions"
     fi
 
     # if either warning message was displayed, ensure we add a newline before continuing with regular output
