@@ -61,8 +61,7 @@ default_web_memory() {
 
 warn_web_concurrency() {
   echo "Could not determine a reasonable value for WEB_CONCURRENCY.
-This is likely due to running the Heroku Node.js buildpack on a non-Heroku
-platform.
+This is likely due to running the buildpack on a non-compatible platform.
 
 WEB_CONCURRENCY has been set to ${1}. Please review whether this value is
 appropriate for your application.
@@ -80,6 +79,7 @@ if [ -z "${WEB_CONCURRENCY}" ]; then
         warn_web_concurrency "$validated_concurrency"
     fi
     export WEB_CONCURRENCY=$validated_concurrency
+    export WEB_CONCURRENCY_SET_BY="scalingo/nodejs"
 fi
 
 if [[ "${LOG_CONCURRENCY+isset}" && "$LOG_CONCURRENCY" == "true" ]]; then
