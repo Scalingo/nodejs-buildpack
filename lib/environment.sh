@@ -111,7 +111,5 @@ write_export() {
     echo "export NODE_EXTRA_CA_CERTS=\"\${NODE_EXTRA_CA_CERTS:-/usr/share/ca-certificates/Scalingo/scalingo-database.pem}\"" >> "$bp_dir/export"
     # shellcheck disable=SC2016
     echo 'export NODE_OPTIONS=${NODE_OPTIONS:-"--max_old_space_size=2560"}' >> "$bp_dir/export"
-    # ensure corepack installed binaries are findable by downstream buildpacks
-    echo "export COREPACK_HOME=\"$build_dir/.scalingo/corepack\"" >> "$bp_dir/export"
   fi
 }
