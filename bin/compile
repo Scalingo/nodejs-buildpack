@@ -267,7 +267,7 @@ install_bins() {
   if ! has_release_script "$BUILD_DIR" && [[ "$package_manager" == yarn* ]]; then
     build_data::set_string "build_step" "install-yarn"
     yarn_version="$(echo "$package_manager" | cut -d '@' -f 2 | cut -d "#" -f 1)"
-    monitor "install_yarn_binary" install_yarn "$BUILD_DIR/.heroku/yarn" "$yarn_version"
+    monitor "install_yarn_binary" install_yarn "$BUILD_DIR/.scalingo/yarn" "$yarn_version"
   else
     # Download yarn if there is a yarn.lock file or if the user
     # has specified a version of yarn under "engines". We'll still
@@ -285,7 +285,7 @@ install_bins() {
     using_default_pnpm=false
     pnpm_version="latest"
     if [[ "$package_manager" == pnpm* ]]; then
-      pnpm_version="$(echo "$package_manager" | cut -d '@' -f 2 | cut -d "#" -f 1)"
+      pnpm_version="$(echo "$package_manager" | cut -d '@' -f 2 | cut -d "+" -f 1)"
     elif [ -n "$pnpm_engine" ]; then
       pnpm_version="${pnpm_engine}"
     else

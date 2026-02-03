@@ -359,9 +359,18 @@ pnpm_prune_devdependencies() {
     echo "Skipping because PNPM_SKIP_PRUNING is '$PNPM_SKIP_PRUNING'"
     build_data::set_raw "skipped_prune" "true"
     return 0
-  elif [ -f "$build_dir/pnpm-workspace.yaml" ] || [ -f "$build_dir/pnpm-workspace.yml" ]; then
-    echo "Skipping because pruning is not supported for pnpm workspaces (https://pnpm.io/cli/prune)"
-    build_data::set_raw "skipped_prune" "true"
+  elif [[ "$(pnpm_workspace_configured "$build_dir")" == "true" ]]; then
+    # Get list of workspace directories from pnpm and remove their node_modules
+    pnpm list --recursive --json --depth -1 2>/dev/null | \
+      jq -r '.[].path' | \
+      while IFS= read -r project_path; do
+        if [[ -d "$project_path/node_modules" ]]; then
+          rm -rf "$project_path/node_modules"
+        fi
+      done
+    # Reinstall with production-only dependencies
+    monitor "prune_dev_dependencies" pnpm install --prod --frozen-lockfile 2>&1
+    build_data::set_raw "skipped_prune" "false"
     return 0
   fi
 
@@ -396,4 +405,26 @@ pnpm_prune_devdependencies() {
   monitor "prune_dev_dependencies" pnpm "${pnpm_prune_args[@]}" 2>&1
 
   build_data::set_raw "skipped_prune" "false"
+}
+
+pnpm_workspace_configured() {
+  local build_dir=${1:-}
+  local workspace_file="$build_dir/pnpm-workspace.yaml"
+  local yq
+  local result
+
+  yq="$BP_DIR/lib/vendor/yq-$(get_os)"
+
+  if [[ -f "$workspace_file" ]]; then
+    # prior to pnpm 10.5.0, the `packages` key was mandatory, but now, you can store
+    # other pnpm-related config settings in `pnpm-workspace.yaml`.
+    result=$($yq r "$workspace_file" 'packages' 2>&1)
+
+    if [[ -n "$result" && "$result" != "null" ]]; then
+      echo "true"
+      return
+    fi
+  fi
+
+  echo "false"
 }
