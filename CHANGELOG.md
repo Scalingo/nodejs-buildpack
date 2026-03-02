@@ -18,6 +18,25 @@
 ## [Unreleased]
 
 
+## [v335] - 2026-02-25
+
+- Fix Yarn 2+ cache being re-downloaded during dev dependency pruning. ([#1558](https://github.com/heroku/heroku-buildpack-nodejs/pull/1558))
+
+## [v334] - 2026-02-25
+
+- Added Node.js 25.7.0 (linux-amd64)
+- Added Node.js 24.14.0 (linux-amd64)
+
+## [v333] - 2026-02-19
+
+- Fix to skip `.yarnrc.yml` and `yarnPath` validations if Yarn is installed using the `packageManager` field. ([#1556](https://github.com/heroku/heroku-buildpack-nodejs/pull/1556))
+
+## [v332] - 2026-02-19
+
+- Updates to Yarn prune plugin. ([#1553](https://github.com/heroku/heroku-buildpack-nodejs/pull/1553))
+- Update `.yarnrc.yml` and `yarnPath` validations to be optional for Yarn 4. ([#1551](https://github.com/heroku/heroku-buildpack-nodejs/pull/1551))
+- Remove outdated ECONNRESET warning. ([#1550](https://github.com/heroku/heroku-buildpack-nodejs/pull/1550))
+
 ## [v331] - 2026-02-10
 
 - Added Node.js 25.6.1 (linux-amd64)
@@ -1252,7 +1271,11 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v331...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v335...main
+[v335]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v334...v335
+[v334]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v333...v334
+[v333]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v332...v333
+[v332]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v331...v332
 [v331]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v330...v331
 [v330]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v329...v330
 [v329]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v328...v329
