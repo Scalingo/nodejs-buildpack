@@ -18,6 +18,20 @@
 ## [Unreleased]
 
 
+## [v340] - 2026-03-26
+
+- Workaround for npm 11 regression with Node.js 22.22.2 caused by missing `promise-retry` module. ([#1591](https://github.com/heroku/heroku-buildpack-nodejs/pull/1591))
+
+## [v339] - 2026-03-25
+
+- Added Node.js 25.8.2 (linux-amd64)
+- Added Node.js 24.14.1 (linux-amd64)
+- Added Node.js 22.22.2 (linux-amd64)
+- Added Node.js 20.20.2 (linux-amd64)
+- Upgrade vendored yq from v3 to v4.52.4. ([#1581](https://github.com/heroku/heroku-buildpack-nodejs/pull/1581))
+- Improved curl error handling for Node.js downloads to prevent silent failures and add per-attempt timeouts. ([#1584](https://github.com/heroku/heroku-buildpack-nodejs/pull/1584))
+- Fixed silent yarn install failures when `determine_yarn_package_name` fails. ([#1585](https://github.com/heroku/heroku-buildpack-nodejs/pull/1585))
+
 ## [v338] - 2026-03-12
 
 - Added Node.js 25.8.1 (linux-amd64)
@@ -1285,7 +1299,9 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v338...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v340...main
+[v340]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v339...v340
+[v339]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v338...v339
 [v338]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v337...v338
 [v337]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v336...v337
 [v336]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v335...v336

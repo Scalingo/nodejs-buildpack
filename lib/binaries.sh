@@ -28,12 +28,16 @@ install_yarn() {
     echo "Downloading and installing yarn from $url"
   else
     echo "Downloading and installing yarn ($version)"
-    package_name=$(determine_yarn_package_name "$version")
+    if ! package_name=$(determine_yarn_package_name "$version"); then
+      echo "Unable to resolve yarn version '$version' via npm info" >&2
+      false
+    fi
     if ! suppress_output npm install --unsafe-perm --quiet --no-audit --no-progress -g "$package_name@$version"; then
       echo "Unable to install yarn $version. " \
         "Does yarn $version exist? " \
         "Is $version valid semver? " \
-        "Is yarn $version compatible with this Node.js version?" \ && false
+        "Is yarn $version compatible with this Node.js version?"
+      false
     fi
   fi
   # Verify yarn works before capturing and ensure its stderr is inspectable later
@@ -98,11 +102,24 @@ install_nodejs() {
   fi
 
   output_file="/tmp/node.tar.gz"
-  code=$(curl "$download_url" -L --silent --fail --retry 5 --retry-max-time 15 --retry-connrefused --connect-timeout 5 -o "$output_file" --write-out "%{http_code}")
+	if ! curl "$download_url" --no-progress-meter --location --fail --max-time 30 --retry 5 --retry-connrefused --connect-timeout 5 -o "$output_file"; then
+		output::error <<-EOF
+			Error: Unable to download Node.js.
 
-  if [ "$code" != "200" ]; then
-    echo "Unable to download node: $code" && false
-  fi
+			Failed to download Node.js from:
+			${download_url}
+
+			In some cases, this happens due to a temporary network
+			issue or an outage with the Node.js distribution server.
+
+			Confirm the download url ({url}) works then try building again
+			to see if the error resolves itself.
+
+			If that doesn't help, check the Node.js status page:
+			https://status.nodejs.org/
+		EOF
+		false
+	fi
 
   if [[ -z "$NODE_BINARY_URL" ]]; then
     case "$checksum_type" in
@@ -154,10 +171,34 @@ install_npm() {
 
 install_npm_binary() {
   local version="$1"
+
+  # XXX: Workaround for https://github.com/heroku/heroku-buildpack-nodejs/issues/1590
+  # Node 22.22.2 fails to install npm >= 11.11.0 with a MODULE_NOT_FOUND error for `promise-retry`.
+  # Installing an intermediate npm version (~11.10.0) first avoids the issue.
+  if [[ "$(node --version)" == "v22.22.2" ]]; then
+    local resolved_version
+    resolved_version=$(npm info "npm@${version}" version --json 2>/dev/null | jq -r 'if type == "array" then .[-1] else . end' 2>/dev/null) || true
+    local major minor
+    major=$(echo "$resolved_version" | cut -d. -f1)
+    minor=$(echo "$resolved_version" | cut -d. -f2)
+    if [[ -z "$resolved_version" ]] || [[ "$resolved_version" == "null" ]] || [[ -z "$major" ]] || [[ -z "$minor" ]]; then
+      echo "Failed to resolve npm version from range '$version'. Unable to perform Node.js 22.22.2 regression workaround (https://github.com/npm/cli/issues/9151)." && false
+      return
+    fi
+    if [[ "$major" == "11" ]] && [[ "$minor" -ge 11 ]]; then
+      echo "Installing npm@~11.10.0 to workaround Node.js 22.22.2 regression (https://github.com/npm/cli/issues/9151)"
+      if ! npm install --unsafe-perm --quiet --no-audit --no-progress -g "npm@~11.10.0" >/dev/null; then
+        echo "Unable to install intermediate npm ~11.10.0 for Node.js 22.22.2 workaround. Consider pinning npm to an exact version that works with Node.js 22.22.2." && false
+        return
+      fi
+    fi
+  fi
+
   if ! npm install --unsafe-perm --quiet --no-audit --no-progress -g "npm@$version" >/dev/null; then
     echo "Unable to install npm $version. " \
       "Does npm $version exist? " \
-      "Is npm $version compatible with this Node.js version?" && false
+      "Is npm $version compatible with this Node.js version?"
+    false
   fi
 }
 
@@ -168,7 +209,8 @@ install_pnpm() {
     echo "Unable to install pnpm $version. " \
       "Does pnpm $version exist? " \
       "Is $version valid semver? " \
-      "Is yarn $version compatible with this Node.js version?" \ && false
+      "Is yarn $version compatible with this Node.js version?"
+    false
   fi
   # Verify pnpm works before capturing and ensure its stderr is inspectable later
   suppress_output pnpm --version
@@ -191,7 +233,8 @@ suppress_output() {
 # Yarn 2+ (aka: "berry") is hosted under a different npm package so we need to do some
 # extra checking to determine the correct package name.
 determine_yarn_package_name() {
-  local NPM_INFO_OUTPUT
+  local version="$1"
+  local NPM_INFO_OUTPUT exit_code
   NPM_INFO_OUTPUT=$(mktemp)
 
   trap "rm -rf '$NPM_INFO_OUTPUT' >/dev/null" RETURN
@@ -208,13 +251,12 @@ determine_yarn_package_name() {
   fi
 
   # If nothing is returned for the yarn package list for the given version, it must be @yarnpkg/cli-dist
-  if cat "$NPM_INFO_OUTPUT" | grep -q "E404"; then
+  if grep -q "E404" "$NPM_INFO_OUTPUT"; then
     echo "@yarnpkg/cli-dist"
     return 0
   fi
 
-  # Handle unexpected output
-  echo "Unable to resolve yarn version '$version' via npm info"
-  cat "$NPM_INFO_OUTPUT"
+  # Handle unexpected output on stderr so it's not captured by command substitution
+  cat "$NPM_INFO_OUTPUT" >&2
   return "$exit_code"
 }
