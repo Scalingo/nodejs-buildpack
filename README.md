@@ -212,6 +212,14 @@ To run the test suite:
 make test
 ```
 
+Or to just test a specific stack:
+
+```
+make heroku-22-build
+make heroku-24-build
+make heroku-26-build
+```
+
 The tests are run via the vendored
 [shunit2](https://github.com/kward/shunit2)
 test framework.
