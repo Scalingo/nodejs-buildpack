@@ -18,6 +18,26 @@
 ## [Unreleased]
 
 
+## [v346] - 2026-05-05
+
+- Added Node.js 26.0.0 (linux-amd64)
+
+## [v345] - 2026-05-05
+
+- Persist the pnpm store-dir environment variable for subsequent buildpacks, fixing a multi-buildpack regression from [#1625](https://github.com/heroku/heroku-buildpack-nodejs/pull/1625).
+
+## [v344] - 2026-04-30
+
+- Use environment variables instead of `pnpm config set store-dir` for configuring the pnpm store cache, adding support for pnpm v11. ([#1625](https://github.com/heroku/heroku-buildpack-nodejs/pull/1625))
+
+## [v343] - 2026-04-27
+
+- Warnings during binary installation now use styled stderr output instead of plain stdout. ([#1623](https://github.com/heroku/heroku-buildpack-nodejs/pull/1623))
+- Updated resolve-version binary to use shared `nodejs-data` crate. ([#1617](https://github.com/heroku/heroku-buildpack-nodejs/pull/1617))
+- Improve resolve-version logic for detecting highest LTS to use when a wide version range is requested. ([#1618](https://github.com/heroku/heroku-buildpack-nodejs/pull/1618))
+- Default Node.js version is now derived from the `nodejs-data` crate instead of being hardcoded in shell scripts. ([#1620](https://github.com/heroku/heroku-buildpack-nodejs/pull/1620))
+- Warn when deploying with End-of-Life Node.js versions. ([#1621](https://github.com/heroku/heroku-buildpack-nodejs/pull/1621))
+
 ## [v342] - 2026-04-16
 
 - Added Node.js 24.15.0 (linux-amd64)
@@ -1307,7 +1327,11 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v342...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v346...main
+[v346]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v345...v346
+[v345]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v344...v345
+[v344]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v343...v344
+[v343]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v342...v343
 [v342]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v341...v342
 [v341]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v340...v341
 [v340]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v339...v340
