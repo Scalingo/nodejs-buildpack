@@ -254,24 +254,72 @@ install_bins() {
     echo "packageManager (package.json): $(echo "$package_manager" | cut -d "+" -f 1)"
   fi
 
-  echo ""
-
   warn_node_engine "$node_engine"
 
+  local showed_warning=false
+
   if [ -n "$pnpm_engine" ] && [[ "$package_manager" == pnpm* ]]; then
-    warn_multiple_pnpm_version "$package_manager" "$pnpm_engine"
+    showed_warning=true
+    output::warning <<-EOF
+			Multiple pnpm versions declared
+
+			The package.json file indicates the target version of pnpm to install in two fields:
+			- "packageManager": "$package_manager"
+			- "engines.pnpm": "$pnpm_engine"
+
+			If both fields are present, then "packageManager" will take precedence and "$package_manager" will be installed.
+
+			To ensure we install the version of pnpm you want, remove one of these fields.
+		EOF
   fi
 
   if [ -n "$yarn_engine" ] && [[ "$package_manager" == yarn* ]]; then
-    warn_multiple_yarn_version "$package_manager" "$yarn_engine"
+    showed_warning=true
+    output::warning <<-EOF
+			Multiple Yarn versions declared
+
+			The package.json file indicates the target version of Yarn to install in two fields:
+			- "packageManager": "$package_manager"
+			- "engines.yarn": "$yarn_engine"
+
+			If both fields are present, then "packageManager" will take precedence and "$package_manager" will be installed.
+
+			To ensure we install the version of Yarn you want, remove one of these fields.
+		EOF
   fi
 
   if has_release_script "$BUILD_DIR" && [[ "$package_manager" == yarn* ]]; then
-    warn_yarn_release_script_with_package_manager "$package_manager" "$(get_yarn_path "$BUILD_DIR")"
+    showed_warning=true
+    local release_script
+    release_script="$(get_yarn_path "$BUILD_DIR")"
+    output::warning <<-EOF
+			Yarn release script may conflict with "packageManager"
+
+			The package.json file indicates the target version of Yarn to install with:
+			- "packageManager": "$package_manager"
+
+			But the .yarnrc.yml configuration indicates a vendored release of Yarn should be used with:
+			- yarnPath: "$release_script"
+
+			This will cause the buildpack to install $package_manager but, when running Yarn commands, the vendored release
+			at "$release_script" will be executed instead.
+
+			To ensure we install the version of Yarn you want, choose only one of the following actions:
+			- Remove the "packageManager" field from package.json
+			- Remove the "yarnPath" configuration from .yarnrc.yml and delete the vendored release at "$release_script"
+		EOF
   fi
 
+  if [ "$showed_warning" = false ]; then
+    echo ""
+  fi
+
+  local install_start
+
   build_data::set_string "build_step" "install-nodejs"
-  monitor "install_node_binary" install_nodejs "$node_engine" "$BUILD_DIR/.scalingo/node"
+  install_start=$(build_data::current_unix_realtime)
+  install_nodejs "$node_engine" "$BUILD_DIR/.scalingo/node"
+  build_data::set_duration "install_node_binary_time" "$install_start"
   build_data::set_string "node_version" "$(node --version)"
   build_data::set_raw "node_version_major" "$(get_node_major_version)"
   build_data::set_string "bundled_npm_version" "$(npm --version)"
@@ -282,14 +330,18 @@ install_bins() {
   if ! has_release_script "$BUILD_DIR" && [[ "$package_manager" == yarn* ]]; then
     build_data::set_string "build_step" "install-yarn"
     yarn_version="$(echo "$package_manager" | cut -d '@' -f 2 | cut -d "#" -f 1)"
-    monitor "install_yarn_binary" install_yarn "$BUILD_DIR/.scalingo/yarn" "$yarn_version"
+    install_start=$(build_data::current_unix_realtime)
+    install_yarn "$BUILD_DIR/.scalingo/yarn" "$yarn_version"
+    build_data::set_duration "install_yarn_binary_time" "$install_start"
   else
     # Download yarn if there is a yarn.lock file or if the user
     # has specified a version of yarn under "engines". We'll still
     # only install using yarn if there is a yarn.lock file
     if $YARN || [ -n "$yarn_engine" ]; then
       build_data::set_string "build_step" "install-yarn"
-      monitor "install_yarn_binary" install_yarn "$BUILD_DIR/.scalingo/yarn" "$yarn_engine"
+      install_start=$(build_data::current_unix_realtime)
+      install_yarn "$BUILD_DIR/.scalingo/yarn" "$yarn_engine"
+      build_data::set_duration "install_yarn_binary_time" "$install_start"
     fi
   fi
 
@@ -307,10 +359,20 @@ install_bins() {
       using_default_pnpm=true
     fi
 
-    monitor "install_pnpm_binary" install_pnpm "$pnpm_version"
-    pnpm config set store-dir "$PNPM_CONFIG_CACHE" 2>&1
+    install_start=$(build_data::current_unix_realtime)
+    install_pnpm "$pnpm_version"
+    build_data::set_duration "install_pnpm_binary_time" "$install_start"
     if [ "$using_default_pnpm" == true ]; then
-      warn_default_pnpm_version_used "$default_pnpm_version"
+      output::warning <<-EOF
+				Default pnpm version used
+
+				A pnpm lockfile (pnpm-lock.yaml) was detected but no specific version of pnpm was defined in package.json in either of the following fields:
+				- "packageManager"
+				- "engines.pnpm"
+
+				Without a specific version defined, this build will use "$default_pnpm_version" by default. We highly recommend setting an explicit version
+				of pnpm to improve the reliability of your builds.
+			EOF
     fi
   fi
 
@@ -335,8 +397,36 @@ install_bins() {
   fi
 }
 
-header "Installing binaries" | output "$LOG_FILE"
-install_bins | output "$LOG_FILE"
+output::step "Installing binaries"
+install_bins | output::indent | tee -a "$LOG_FILE"
+
+if $PNPM; then
+  # pnpm 11+ reads config from pnpm_config_* env vars (https://pnpm.io/blog/releases/11.0#highlights),
+  # older versions use npm_config_*
+  pnpm_major=$(pnpm --version | cut -d "." -f 1)
+  pnpm_store_dir_config_name="npm_config_store_dir"
+  if (( pnpm_major >= 11 )); then
+    pnpm_store_dir_config_name="pnpm_config_store_dir"
+  fi
+
+  export "${pnpm_store_dir_config_name}=${PNPM_CONFIG_CACHE}"
+
+  # only write the export script if the buildpack directory is writable.
+  # this may occur in situations outside of Heroku, such as running the
+  # buildpacks locally.
+  if [ -w "$BP_DIR" ]; then
+    echo "export ${pnpm_store_dir_config_name}=\"$PNPM_CONFIG_CACHE\"" >> "$BP_DIR/export"
+  fi
+
+  actual_store_path=$(pnpm config get store-dir 2>/dev/null)
+  if [[ -z "$actual_store_path" || "$actual_store_path" != "$PNPM_CONFIG_CACHE" ]]; then
+    output::warning <<-EOF
+			The pnpm store is at '${actual_store_path:-undefined}' instead of the expected
+			location '$PNPM_CONFIG_CACHE'. The pnpm store cache may not work
+			correctly between builds.
+		EOF
+  fi
+fi
 
 if [[ -z "$USE_NPM_INSTALL" ]]; then
   if [[ "$(should_use_npm_ci "$BUILD_DIR")" == "true" ]]; then
