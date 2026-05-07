@@ -105,7 +105,7 @@ install_nodejs() {
       output::warning <<-EOF
 				Node.js $version is now End-of-Life (EOL). It no longer receives security
 				updates, bug fixes, or support from the Node.js project and is no longer
-				supported on Heroku.
+				supported on Scalingo.
 
 				In a future buildpack release, this warning will become a build error. Please
 				upgrade to a supported version as soon as possible to avoid build failures.
