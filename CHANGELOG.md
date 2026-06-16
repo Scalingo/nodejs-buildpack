@@ -18,6 +18,15 @@
 ## [Unreleased]
 
 
+## [v353] - 2026-06-15
+
+- Fixed pnpm 11 apps experiencing `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` errors at runtime when pnpm commands are executed. ([#1667](https://github.com/heroku/heroku-buildpack-nodejs/pull/1667))
+
+
+## [v352] - 2026-06-11
+
+- Deprecated Node.js 25.x (reached end-of-life). ([#1665](https://github.com/heroku/heroku-buildpack-nodejs/pull/1665))
+
 ## [v351] - 2026-06-03
 
 - Added Node.js 26.3.0 (linux-amd64)
@@ -1348,7 +1357,9 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v351...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v353...main
+[v353]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v352...v353
+[v352]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v351...v352
 [v351]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v350...v351
 [v350]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v349...v350
 [v349]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v348...v349
