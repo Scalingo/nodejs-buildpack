@@ -18,6 +18,19 @@
 ## [Unreleased]
 
 
+## [v351] - 2026-06-03
+
+- Added Node.js 26.3.0 (linux-amd64)
+- Tolerate `ENOENT` from `pnpm store prune` when the pnpm store has no fetched package files, fixing build failures on pnpm <9.12.0 for projects that resolve with no external dependencies. ([#1654](https://github.com/heroku/heroku-buildpack-nodejs/pull/1654))
+
+## [v350] - 2026-05-21
+
+- Added Node.js 24.16.0 (linux-amd64)
+
+## [v349] - 2026-05-21
+
+- Added Node.js 26.2.0 (linux-amd64)
+
 ## [v348] - 2026-05-14
 
 - Added Node.js 22.22.3 (linux-amd64)
@@ -1335,7 +1348,10 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v348...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v351...main
+[v351]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v350...v351
+[v350]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v349...v350
+[v349]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v348...v349
 [v348]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v347...v348
 [v347]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v346...v347
 [v346]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v345...v346
