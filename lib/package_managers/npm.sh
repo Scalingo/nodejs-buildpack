@@ -171,8 +171,6 @@ function npm::_handle_npm_install_failure() {
 					On November 26th (2018), npm was notified of a malicious package that had made
 					its way into event-stream, a popular npm package. npm responded by removing
 					flatmap-stream and event-stream@3.3.6 from the registry.
-
-					Docs: https://help.heroku.com/4OM7X18J
 				EOF
 			)
 			return 0
