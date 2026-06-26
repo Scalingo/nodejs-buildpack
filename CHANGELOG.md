@@ -18,6 +18,16 @@
 ## [Unreleased]
 
 
+## [v356] - 2026-06-25
+
+- Added Node.js 26.4.0 (linux-amd64)
+- Added clearer `npm install` build errors for npm 12's new install-blocking defaults: blocked install scripts (`ESTRICTALLOWSCRIPTS`), git dependencies (`EALLOWGIT`), and remote-URL dependencies (`EALLOWREMOTE`), with guidance on approving scripts or adjusting `.npmrc`. ([#1683](https://github.com/heroku/heroku-buildpack-nodejs/pull/1683))
+
+## [v355] - 2026-06-24
+
+- Added Node.js 24.18.0 (linux-amd64)
+- Added Node.js 22.23.1 (linux-amd64)
+
 ## [v354] - 2026-06-18
 
 - Added Node.js 26.3.1 (linux-amd64)
@@ -25,6 +35,7 @@
 - Added Node.js 22.23.0 (linux-amd64)
 - Removed the `Build succeeded!` log line from the build output. In multi-buildpack builds this misleadingly implied the entire build had succeeded when only the Node.js buildpack had finished. ([#1672](https://github.com/heroku/heroku-buildpack-nodejs/pull/1672))
 - Improved the multiple-lockfiles build error message: it now inlines actionable, per-package-manager fix steps (covering npm, Yarn, and pnpm) instead of linking out to a knowledge base article. ([#1673](https://github.com/heroku/heroku-buildpack-nodejs/pull/1673))
+- Improved the error messages shown when `npm install` fails (unsupported platform, invalid package name, package not found), giving clearer, more actionable guidance. ([#1671](https://github.com/heroku/heroku-buildpack-nodejs/pull/1671))
 
 ## [v353] - 2026-06-15
 
@@ -1365,7 +1376,9 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v354...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v356...main
+[v356]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v355...v356
+[v355]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v354...v355
 [v354]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v353...v354
 [v353]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v352...v353
 [v352]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v351...v352

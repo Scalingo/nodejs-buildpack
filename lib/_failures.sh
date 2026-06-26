@@ -854,31 +854,54 @@ warn_missing_package_json() {
 }
 
 warn_old_npm() {
-  local npm_version latest_npm
+	local npm_version latest_npm
 
-  npm_version="$(npm --version)"
+	npm_version="$(npm --version)"
 
-  if [ "$(npm_version_major)" -lt "2" ]; then
-    warning "This version of npm ($npm_version) has several known issues. Please update your npm version in package.json." "https://doc.scalingo.com/languages/nodejs/start#specifying-a-nodejs-version"
-  fi
+	if [ "$(npm_version_major)" -lt "2" ]; then
+		# Emit immediately rather than via warning(), whose $warnings buffer is only flushed by
+		# failure_message on a failed build — so a migrated failure that bypasses the legacy
+		# # handler, or a successful build, would never surface this warning.
+    	output::warning <<-EOF
+			This version of npm ($npm_version) has several known issues.
+			Please update your npm version in package.json.
+
+			https://doc.scalingo.com/languages/nodejs/start#specifying-a-nodejs-version
+		EOF
+	fi
 }
 
 warn_meteor_npm_dir() {
-  if [ ! -d "packages/npm-container" ] ; then
-    warning "Your Meteor app is using '${meteorhacks_npm_version}', check in the 'packages/npm-container' directory in your GIT repository" "http://doc.scalingo.com/languages/javascript/nodejs/meteor/npm"
-  fi
+	if [ ! -d "packages/npm-container" ] ; then
+		output::warning <<-EOF
+			Your Meteor app is using '${meteorhacks_npm_version}', check in the
+			'packages/npm-container' directory in your git repository.
+
+			http://doc.scalingo.com/languages/javascript/nodejs/meteor/npm
+		EOF
+	fi
 }
 
 warn_meteor_npm_packages_json() {
-  if [ ! -e "packages.json" ] ; then
-    warning "Your Meteor app is using '${meteorhacks_npm_version}', check in 'packages.json' in your GIT repository" "http://doc.scalingo.com/languages/javascript/nodejs/meteor/npm"
-  fi
+	if [ ! -e "packages.json" ] ; then
+		output::warning <<-EOF
+			Your Meteor app is using '${meteorhacks_npm_version}', check in
+			'packages.json' in your git repository.
+
+			http://doc.scalingo.com/languages/javascript/nodejs/meteor/npm
+		EOF
+	fi
 }
 
 warn_meteor_npm_package() {
-  if ! grep -q npm-container ".meteor/packages" ; then
-    warning "Your Meteor app is using '${meteorhacks_npm_version}', add 'npm-container' in '.meteor/packages'" "http://doc.scalingo.com/languages/javascript/nodejs/meteor/npm"
-  fi
+	if ! grep -q npm-container ".meteor/packages" ; then
+    	output::warning <<-EOF
+			Your Meteor app is using '${meteorhacks_npm_version}',
+			add 'npm-container' in '.meteor/packages'.
+
+			http://doc.scalingo.com/languages/javascript/nodejs/meteor/npm
+		EOF
+	fi
 }
 
 warn_old_npm_lockfile() {
