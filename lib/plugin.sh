@@ -37,8 +37,8 @@ install_native_plugin() {
   # user has not opted out of including the plugin, copy it into the slug.
   # It will be included at runtime once the user opts into the Node metrics feature
   if [[ -f "${plugin}" ]] && [[ -z "$HEROKU_SKIP_NODE_PLUGIN" ]]; then
-    mkdir -p "${build_dir}/.heroku/"
-    tar -xzf "${plugin}" -C "${build_dir}/.heroku/"
+    mkdir -p "${build_dir}/.scalingo/"
+    tar -xzf "${plugin}" -C "${build_dir}/.scalingo/"
   fi
 }
 # Node.js versions >= 14.10.0 can use the metrics script
@@ -47,7 +47,7 @@ install_script_plugin() {
   local build_dir="$2"
   local pluginScript="${bp_dir}/metrics/metrics_collector.cjs"
   if [[ -f "${pluginScript}" ]] && [[ -z "$HEROKU_SKIP_NODE_PLUGIN" ]]; then
-      mkdir -p "${build_dir}/.heroku/metrics"
-      cp "${pluginScript}" "${build_dir}/.heroku/metrics/"
+      mkdir -p "${build_dir}/.scalingo/metrics"
+      cp "${pluginScript}" "${build_dir}/.scalingo/metrics/"
   fi
 }
