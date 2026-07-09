@@ -198,7 +198,7 @@ should_use_npm_ci() {
   local major
 
   npm_version=$(npm --version)
-  major=$(npm_version_major)
+  major=$(package_managers::npm::version_major)
 
   # We should only run `npm ci` if all of the manifest files are there, and we are running at least npm 6.x
   # `npm ci` was introduced in the 5.x line in 5.7.0, but this sees very little usage, < 5% of builds
@@ -213,6 +213,13 @@ npm_rebuild() {
   local build_dir=${1:-}
   local production=${NPM_CONFIG_PRODUCTION:-false}
 
+  # npm 12 removed the --unsafe-perm flag and rejects it with EUNKNOWNCONFIG, so only pass it
+  # to the currently-active npm when that npm still accepts it.
+  local unsafe_perm=()
+  if package_managers::npm::supports_unsafe_perm; then
+    unsafe_perm=(--unsafe-perm)
+  fi
+
   if [ -e "$build_dir/package.json" ]; then
     cd "$build_dir" || return
     echo "Rebuilding any native modules"
@@ -222,7 +229,7 @@ npm_rebuild() {
     else
       echo "Installing any new modules (package.json)"
     fi
-    monitor "npm_rebuild" npm install --production="$production" --unsafe-perm --userconfig "$build_dir/.npmrc" 2>&1
+    monitor "npm_rebuild" npm install --production="$production" "${unsafe_perm[@]}" --userconfig "$build_dir/.npmrc" 2>&1
   else
     echo "Skipping (no package.json)"
   fi
@@ -273,53 +280,6 @@ npm_prune_devdependencies() {
     monitor "prune_dev_dependencies" npm prune --userconfig "$build_dir/.npmrc" 2>&1
     build_data::set_raw "skipped_prune" "false"
   fi
-}
-
-pnpm_install() {
-  local build_dir=${1:-}
-  local cache_dir=${2:-}
-
-  echo "Running 'pnpm install' with pnpm-lock.yaml"
-  cd "$build_dir" || return
-
-  pnpm_install_args=("install" "--prod=false" "--frozen-lockfile")
-
-  if [ -n "$PNPM_INSTALL_REPORTER" ]; then
-    case "$PNPM_INSTALL_REPORTER" in
-      default|ndjson|append-only|silent)
-        pnpm_install_args+=("--reporter=$PNPM_INSTALL_REPORTER")
-        ;;
-      *)
-        echo "Warning: Invalid PNPM_INSTALL_REPORTER value '$PNPM_INSTALL_REPORTER'. Valid values: default, ndjson, append-only, silent"
-        echo "Proceeding with default reporter"
-        ;;
-    esac
-  fi
-
-  monitor "install_dependencies" pnpm "${pnpm_install_args[@]}" 2>&1
-
-  # prune the store when the counter reaches zero to clean up errant package versions which may have been upgraded/removed
-  counter=$(load_pnpm_prune_store_counter "$cache_dir")
-  if (( counter == 0 )); then
-    echo "Cleaning up pnpm store"
-    # pnpm <9.12.0 errors with `ENOENT: ... scandir '<store>/v*/files'`
-    # when the store has no fetched package files (e.g. an install with
-    # no external dependencies), because pnpm only creates that
-    # directory on first download. Treat any ENOENT-on-scandir of the
-    # store's `vN/files` directory during prune as a benign empty-store
-    # no-op; surface every other failure so we don't mask unrelated
-    # prune errors. Fixed upstream in pnpm/pnpm#8555.
-    # TODO: remove when minimum supported pnpm is >= 9.12.0.
-    local prune_output prune_exit=0
-    prune_output=$(mktemp)
-    trap "rm -f '$prune_output' >/dev/null" RETURN
-    pnpm store prune >"$prune_output" 2>&1 || prune_exit=$?
-    if (( prune_exit != 0 )) && ! grep -qE "ENOENT.*scandir" "$prune_output"; then
-      cat "$prune_output"
-      return "$prune_exit"
-    fi
-  fi
-  save_pnpm_prune_store_counter "$cache_dir" "$(( counter - 1 ))"
 }
 
 pnpm_prune_devdependencies() {
