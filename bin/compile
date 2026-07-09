@@ -331,7 +331,7 @@ install_bins() {
   local install_start
 
   build_data::set_string "build_step" "install-nodejs"
-  runtimes::nodejs::install "$node_engine" "$BUILD_DIR/.heroku/node"
+  runtimes::nodejs::install "$node_engine" "$BUILD_DIR/.scalingo/node"
 
   build_data::set_string "build_step" "install-npm"
   install_npm "$npm_engine" "$BUILD_DIR/.scalingo/node" "$NPM_LOCK"
