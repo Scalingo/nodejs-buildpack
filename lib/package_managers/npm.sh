@@ -14,11 +14,11 @@ set -euo pipefail
 # Installs app dependencies with npm (fresh install path; the prebuild/rebuild path is
 # still handled by lib/dependencies.sh until it is migrated).
 #
-# On failure, the captured output is run through npm::_handle_npm_install_failure and, if a
+# On failure, the captured output is run through package_managers::npm::_handle_npm_install_failure and, if a
 # known failure mode is recognised, failure::emit renders the message, records the
 # classification, and exits. Otherwise a generic npm-install failure is emitted so the build
 # never falls through silently.
-function npm::install_dependencies() {
+function package_managers::npm::install_dependencies() {
 	local build_dir="${1}"
 	local production="${NPM_CONFIG_PRODUCTION:-false}"
 
@@ -45,7 +45,11 @@ function npm::install_dependencies() {
 		fi
 		npm_command+=(install)
 	fi
-	npm_command+=(--production="${production}" --unsafe-perm --userconfig "${build_dir}/.npmrc")
+	npm_command+=(--production="${production}" --userconfig "${build_dir}/.npmrc")
+	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside; a non-match just omits the flag
+	if package_managers::npm::supports_unsafe_perm; then
+		npm_command+=(--unsafe-perm)
+	fi
 
 	local log_file
 	log_file=$(mktemp)
@@ -84,7 +88,7 @@ function npm::install_dependencies() {
 				EOF
 			)
 			failure::emit failure
-		elif npm::_handle_npm_install_failure "${log_file}" failure; then
+		elif package_managers::npm::_handle_npm_install_failure "${log_file}" failure; then
 			# The classifier fills `failure` by nameref and returns 0 on a match. It is invoked
 			# directly in the `elif` condition (not wrapped in `$(...)`) so its writes survive — a
 			# command substitution runs in a subshell where the nameref updates would be lost.
@@ -102,8 +106,16 @@ function npm::install_dependencies() {
 	build_data::set_duration "install_dependencies_time" "${start}"
 }
 
-function npm_version_major() {
+function package_managers::npm::version_major() {
 	npm --version | cut -d "." -f 1
+}
+
+# npm 12 removed the --unsafe-perm flag and rejects it with EUNKNOWNCONFIG. Returns 0 when the
+# active npm still accepts the flag (major < 12), 1 otherwise. Callers gate --unsafe-perm on this.
+function package_managers::npm::supports_unsafe_perm() {
+	local major
+	major="$(package_managers::npm::version_major)"
+	[[ "${major}" -lt 12 ]]
 }
 
 # Pure classifier for npm dependency-install failures.
@@ -115,7 +127,7 @@ function npm_version_major() {
 # the array untouched otherwise. Has no side effects: it does not write build data, print to
 # the build log, or exit. Detail is set to the npm error code plus the first descriptive
 # error line, giving observability a precise discriminator within each failure bucket.
-function npm::_handle_npm_install_failure() {
+function package_managers::npm::_handle_npm_install_failure() {
 	local log_file="${1}"
 	# shellcheck disable=SC2178 # nameref alias to the caller's associative array, not a string
 	local -n __failure="${2}"
@@ -124,7 +136,7 @@ function npm::_handle_npm_install_failure() {
 	if grep -qiE 'npm (ERR!|error) code EBADPLATFORM($| )' "${log_file}"; then
 		__failure["id"]="npm-ebadplatform"
 		__failure["classification"]="user"
-		__failure["detail"]="EBADPLATFORM: $(npm::_extract_error_detail "${log_file}")"
+		__failure["detail"]="EBADPLATFORM: $(package_managers::npm::_extract_error_detail "${log_file}")"
 		__failure["message"]=$(
 			cat <<-EOF
 				Error: Unable to install dependencies using npm.
@@ -142,7 +154,7 @@ function npm::_handle_npm_install_failure() {
 	if grep -qiE 'npm (ERR!|error) code EINVALIDPACKAGENAME($| )' "${log_file}"; then
 		__failure["id"]="npm-package-name-typo"
 		__failure["classification"]="user"
-		__failure["detail"]="EINVALIDPACKAGENAME: $(npm::_extract_error_detail "${log_file}")"
+		__failure["detail"]="EINVALIDPACKAGENAME: $(package_managers::npm::_extract_error_detail "${log_file}")"
 		__failure["message"]=$(
 			cat <<-EOF
 				Error: Unable to install dependencies using npm.
@@ -163,7 +175,7 @@ function npm::_handle_npm_install_failure() {
 		if grep -qi "flatmap-stream" "${log_file}"; then
 			__failure["id"]="flatmap-stream-404"
 			__failure["classification"]="user"
-			__failure["detail"]="E404: $(npm::_extract_error_detail "${log_file}")"
+			__failure["detail"]="E404: $(package_managers::npm::_extract_error_detail "${log_file}")"
 			__failure["message"]=$(
 				cat <<-EOF
 					Error: The flatmap-stream module has been removed from the npm registry.
@@ -178,7 +190,7 @@ function npm::_handle_npm_install_failure() {
 
 		__failure["id"]="module-404"
 		__failure["classification"]="user"
-		__failure["detail"]="E404: $(npm::_extract_error_detail "${log_file}")"
+		__failure["detail"]="E404: $(package_managers::npm::_extract_error_detail "${log_file}")"
 		__failure["message"]=$(
 			cat <<-EOF
 				Error: Unable to install dependencies using npm.
@@ -196,7 +208,7 @@ function npm::_handle_npm_install_failure() {
 	if grep -qiE 'npm (ERR!|error) code ESTRICTALLOWSCRIPTS' "${log_file}"; then
 		__failure["id"]="npm-strict-allow-scripts"
 		__failure["classification"]="user"
-		__failure["detail"]="ESTRICTALLOWSCRIPTS: $(npm::_extract_error_detail "${log_file}")"
+		__failure["detail"]="ESTRICTALLOWSCRIPTS: $(package_managers::npm::_extract_error_detail "${log_file}")"
 		__failure["message"]=$(
 			cat <<-EOF
 				Error: Unable to install dependencies using npm.
@@ -220,7 +232,7 @@ function npm::_handle_npm_install_failure() {
 	if grep -qiE 'npm (ERR!|error) code EALLOWGIT' "${log_file}"; then
 		__failure["id"]="npm-allow-git-blocked"
 		__failure["classification"]="user"
-		__failure["detail"]="EALLOWGIT: $(npm::_extract_error_detail "${log_file}")"
+		__failure["detail"]="EALLOWGIT: $(package_managers::npm::_extract_error_detail "${log_file}")"
 		__failure["message"]=$(
 			cat <<-EOF
 				Error: Unable to install dependencies using npm.
@@ -243,7 +255,7 @@ function npm::_handle_npm_install_failure() {
 	if grep -qiE 'npm (ERR!|error) code EALLOWREMOTE' "${log_file}"; then
 		__failure["id"]="npm-allow-remote-blocked"
 		__failure["classification"]="user"
-		__failure["detail"]="EALLOWREMOTE: $(npm::_extract_error_detail "${log_file}")"
+		__failure["detail"]="EALLOWREMOTE: $(package_managers::npm::_extract_error_detail "${log_file}")"
 		__failure["message"]=$(
 			cat <<-EOF
 				Error: Unable to install dependencies using npm.
@@ -272,8 +284,8 @@ function npm::_handle_npm_install_failure() {
 # Returns the first descriptive npm error line for use as failure detail: the first
 # `npm error`/`npm ERR!` line that carries a human message, skipping the bare `code <CODE>`
 # line and the trailing "complete log" noise, with the prefix and indentation stripped.
-# Internal helper to npm::_handle_npm_install_failure; not meant to be called directly.
-function npm::_extract_error_detail() {
+# Internal helper to package_managers::npm::_handle_npm_install_failure; not meant to be called directly.
+function package_managers::npm::_extract_error_detail() {
 	local log_file="${1}"
 	grep -iE 'npm (ERR!|error) ' "${log_file}" \
 		| grep -ivE 'npm (ERR!|error) code ' \
@@ -282,6 +294,98 @@ function npm::_extract_error_detail() {
 		| sed -E 's/^npm (ERR!|error) //I' \
 		| sed -E 's/^[[:space:]]+//' \
 		|| true
+}
+
+function package_managers::npm::install_binary() {
+	local npm_version
+	local version="$1"
+	local dir="$2"
+	local npm_lock="$3"
+	# Verify npm works before capturing and ensure its stderr is inspectable later
+	suppress_output npm --version
+	npm_version="$(npm --version)"
+
+	# If the user has not specified a version of npm, but has an npm lockfile
+	# upgrade them to npm 5.x if a suitable version was not installed with Node
+	local npm_version_major
+	npm_version_major="$(package_managers::npm::version_major)"
+	if ${npm_lock} && [[ "${version}" == "" ]] && [[ "${npm_version_major}" -lt "5" ]]; then
+		echo "Detected package-lock.json: defaulting npm to version 5.x.x"
+		version="5.x.x"
+	fi
+
+	if [[ "${version}" == "" ]]; then
+		echo "Using default npm version: ${npm_version}"
+	elif [[ "${npm_version}" == "${version}" ]]; then
+		echo "npm ${npm_version} already installed with node"
+	else
+		echo "Bootstrapping npm ${version} (replacing ${npm_version})..."
+		local install_npm_start
+		install_npm_start=$(build_data::current_unix_realtime)
+		package_managers::npm::_install_binary "${version}"
+		build_data::set_duration "install_npm_binary_time" "${install_npm_start}"
+		# Verify npm works before capturing and ensure its stderr is inspectable later
+		suppress_output npm --version
+		local installed_npm_version
+		installed_npm_version="$(npm --version)"
+		echo "npm ${installed_npm_version} installed"
+	fi
+}
+
+function package_managers::npm::_install_binary() {
+	local version="$1"
+
+	# The global installs below run with the currently-active (pre-bootstrap) npm, so gate
+	# --unsafe-perm on its version: npm 12 removed the flag and rejects it with EUNKNOWNCONFIG.
+	local unsafe_perm=()
+	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside; a non-match just omits the flag
+	if package_managers::npm::supports_unsafe_perm; then
+		unsafe_perm=(--unsafe-perm)
+	fi
+
+	# XXX: Workaround for https://github.com/heroku/heroku-buildpack-nodejs/issues/1590
+	# Node 22.22.2 fails to install npm >= 11.11.0 with a MODULE_NOT_FOUND error for `promise-retry`.
+	# Installing an intermediate npm version (~11.10.0) first avoids the issue.
+	local node_version
+	node_version="$(node --version)"
+	if [[ "${node_version}" == "v22.22.2" ]]; then
+		local resolved_version
+		resolved_version=$(npm info "npm@${version}" version --json 2>/dev/null | jq -r 'if type == "array" then .[-1] else . end' 2>/dev/null) || true
+		local major minor
+		major=$(echo "${resolved_version}" | cut -d. -f1)
+		minor=$(echo "${resolved_version}" | cut -d. -f2)
+		if [[ -z "${resolved_version}" ]] || [[ "${resolved_version}" == "null" ]] || [[ -z "${major}" ]] || [[ -z "${minor}" ]]; then
+			build_data::set_string "failure" "npm-resolve-failed"
+			output::error <<-EOF
+				Failed to resolve npm version from range '${version}'.
+				Unable to perform Node.js 22.22.2 regression workaround (https://github.com/npm/cli/issues/9151).
+			EOF
+			false
+			return
+		fi
+		if [[ "${major}" == "11" ]] && [[ "${minor}" -ge 11 ]]; then
+			echo "Installing npm@~11.10.0 to workaround Node.js 22.22.2 regression (https://github.com/npm/cli/issues/9151)"
+			if ! suppress_output npm install "${unsafe_perm[@]}" --quiet --no-audit --no-progress -g "npm@~11.10.0"; then
+				build_data::set_string "failure" "npm-node-22.22.2-workaround-failed"
+				output::error <<-EOF
+					Unable to install intermediate npm ~11.10.0 for Node.js 22.22.2 workaround.
+					Consider pinning npm to an exact version that works with Node.js 22.22.2.
+				EOF
+				false
+				return
+			fi
+		fi
+	fi
+
+	if ! suppress_output npm install "${unsafe_perm[@]}" --quiet --no-audit --no-progress -g "npm@${version}"; then
+		build_data::set_string "failure" "npm-install-failed"
+		output::error <<-EOF
+			Unable to install npm ${version}.
+			Does npm ${version} exist?
+			Is npm ${version} compatible with this Node.js version?
+		EOF
+		false
+	fi
 }
 
 # Restore the sourcing shell's original options (see preamble). errexit/nounset come from the
