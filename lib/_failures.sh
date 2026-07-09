@@ -256,65 +256,6 @@ fail_yarn_lockfile_outdated() {
   fi
 }
 
-fail_bin_install() {
-  local error
-  local version="$1"
-
-  # Allow the subcommand to fail without trapping the error so we can
-  # get the failing message output
-  set +e
-
-  # re-request the result, saving off the reason for the failure this time
-  error=$($RESOLVE "$BP_DIR/inventory/node.toml" "$version" 2>&1)
-
-  # re-enable trapping
-  set -e
-
-  if [[ $error = "No result" ]]; then
-    echo "Could not find Node version corresponding to version requirement: $version"
-  elif [[ $error == "Could not parse"* ]] || [[ $error == "Could not get"* ]]; then
-    echo "Error: Invalid semantic version \"$version\""
-  else
-    echo "Error: Unknown error installing \"$version\" of node"
-  fi
-
-  return 1
-}
-
-fail_node_install() {
-  local node_engine
-  local log_file="$1"
-  local build_dir="$2"
-
-  if grep -qi 'Could not find Node version corresponding to version requirement' "$log_file"; then
-    node_engine=$(read_json "$build_dir/package.json" ".engines.node")
-    build_data::set_string "failure" "invalid-node-version"
-    echo ""
-    warn "No matching version found for Node: $node_engine
-
-       Scalingo supports the latest Stable version of Node.js as well as all
-       active LTS (Long-Term-Support) versions, however you have specified
-       a version in package.json ($node_engine) that does not correspond to
-       any published version of Node.js.
-
-       You should always specify a Node.js version that matches the runtime
-       you’re developing and testing with. To find your version locally:
-
-       $ node --version
-       v6.11.1
-
-       Use the engines section of your package.json to specify the version of
-       Node.js to use on Scalingo. Drop the ‘v’ to save only the version number:
-
-       \"engines\": {
-         \"node\": \"6.11.1\"
-       }
-    " "https://doc.scalingo.com/languages/javascript/nodejs/#specifying-a-nodejs-version"
-    fail
-    exit 1
-  fi
-}
-
 fail_yarn_install() {
   local yarn_engine
   local log_file="$1"
@@ -345,26 +286,6 @@ fail_yarn_install() {
        \"engines\": {
          \"yarn\": \"1.x\"
        }
-    " "https://doc.scalingo.com/languages/javascript/nodejs/#specifying-a-nodejs-version"
-    fail
-    exit 1
-  fi
-}
-
-fail_invalid_semver() {
-  local log_file="$1"
-  if grep -qi 'Error: Invalid semantic version' "$log_file"; then
-    build_data::set_string "failure" "invalid-semver-requirement"
-    echo ""
-    warn "Invalid semver requirement
-
-       Node, Yarn, and npm adhere to semver, the semantic versioning convention
-       popularized by GitHub.
-
-       http://semver.org/
-
-       However you have specified a version requirement that is not a valid
-       semantic version.
     " "https://doc.scalingo.com/languages/javascript/nodejs/#specifying-a-nodejs-version"
     fail
     exit 1
@@ -822,12 +743,6 @@ warn() {
   echo ""
 }
 
-warn_aws_proxy() {
-  if { [[ -n "$HTTP_PROXY" ]] || [[ -n "$HTTPS_PROXY" ]]; } && [[ "$NO_PROXY" != "amazonaws.com" ]]; then
-    warn "Your build may fail if NO_PROXY is not set to amazonaws.com"
-  fi
-}
-
 warn_node_engine() {
   local node_engine=${1:-}
   if [ "$node_engine" == "" ]; then
@@ -859,25 +774,13 @@ warn_old_npm() {
   npm_version="$(npm --version)"
 
   if [ "$(npm_version_major)" -lt "2" ]; then
-    warning "This version of npm ($npm_version) has several known issues. Please update your npm version in package.json." "https://doc.scalingo.com/languages/nodejs/start#specifying-a-nodejs-version"
-  fi
-}
-
-warn_meteor_npm_dir() {
-  if [ ! -d "packages/npm-container" ] ; then
-    warning "Your Meteor app is using '${meteorhacks_npm_version}', check in the 'packages/npm-container' directory in your GIT repository" "http://doc.scalingo.com/languages/javascript/nodejs/meteor/npm"
-  fi
-}
-
-warn_meteor_npm_packages_json() {
-  if [ ! -e "packages.json" ] ; then
-    warning "Your Meteor app is using '${meteorhacks_npm_version}', check in 'packages.json' in your GIT repository" "http://doc.scalingo.com/languages/javascript/nodejs/meteor/npm"
-  fi
-}
-
-warn_meteor_npm_package() {
-  if ! grep -q npm-container ".meteor/packages" ; then
-    warning "Your Meteor app is using '${meteorhacks_npm_version}', add 'npm-container' in '.meteor/packages'" "http://doc.scalingo.com/languages/javascript/nodejs/meteor/npm"
+    # Emit immediately rather than via warning(), whose $warnings buffer is only flushed by
+    # failure_message on a failed build — so a migrated failure that bypasses the legacy
+    # handler, or a successful build, would never surface this warning.
+    output::warning <<-EOF
+			This version of npm ($npm_version) has several known issues.
+			Please update your npm version in package.json.
+		EOF
   fi
 }
 
