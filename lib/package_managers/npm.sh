@@ -11,7 +11,8 @@ __npm_saved_flags="$-"
 __npm_saved_pipefail="$(set +o | grep pipefail)"
 set -euo pipefail
 
-# Installs app dependencies with npm (fresh install path).
+# Installs app dependencies with npm (fresh install path; the prebuild/rebuild path is
+# still handled by lib/dependencies.sh until it is migrated).
 #
 # On failure, the captured output is run through package_managers::npm::_handle_npm_install_failure and, if a
 # known failure mode is recognised, failure::emit renders the message, records the
@@ -68,9 +69,25 @@ function package_managers::npm::install_dependencies() {
 		local -A failure
 		# shellcheck disable=SC2310 # the elif calls a function in a condition, so set -e is disabled inside
 		if [[ "${npm_exit}" -eq 0 ]]; then
-			# npm succeeded but the pipeline failed (tee couldn't write the log — e.g. out of
-			# disk). Buildpack-side, so don't run it through the npm classifier.
-			package_managers::npm::_handle_install_pipefail "${pipe_status[*]}"
+			# npm itself succeeded; the pipeline failed because `tee` (which captures the install
+			# log) failed — e.g. the build ran out of disk space. That is a failure on the
+			# buildpack's side, not a problem with the app's dependencies, so don't run it through
+			# the npm classifier (it would match nothing and blame the user). `tee` returns a bare
+			# non-zero on any write error without encoding the cause, so we record the raw pipe
+			# status as detail for observability rather than guessing why it failed.
+			failure["id"]="npm-install-pipefail"
+			failure["classification"]="buildpack"
+			failure["detail"]="PIPESTATUS=[${pipe_status[*]}]"
+			failure["message"]=$(
+				cat <<-EOF
+					Error: Unable to capture the npm install log output.
+
+					The dependency install ran, but writing its log to disk failed (for example,
+					the build ran out of disk space). This is not a problem with your
+					dependencies. Please try again.
+				EOF
+			)
+			failure::emit failure
 		elif package_managers::npm::_handle_npm_install_failure "${log_file}" failure; then
 			# The classifier fills `failure` by nameref and returns 0 on a match. It is invoked
 			# directly in the `elif` condition (not wrapped in `$(...)`) so its writes survive — a
@@ -89,74 +106,6 @@ function package_managers::npm::install_dependencies() {
 	build_data::set_duration "install_dependencies_time" "${start}"
 }
 
-# Rebuilds app dependencies with npm (prebuild/rebuild path used when node_modules is
-# checked into source control): runs `npm rebuild` to rebuild any native modules, then
-# `npm install` to install anything missing from package.json.
-function package_managers::npm::rebuild_dependencies() {
-	local build_dir="${1:-}"
-	local production="${NPM_CONFIG_PRODUCTION:-false}"
-
-	if [[ ! -e "${build_dir}/package.json" ]]; then
-		echo "Skipping (no package.json)"
-		return 0
-	fi
-
-	cd "${build_dir}"
-	echo "Rebuilding any native modules"
-	# `npm rebuild` runs unwrapped: its failure surface is native-module compile errors, not
-	# resolution/registry failures, so the npm-install classifier below does not apply. If it
-	# fails, errexit fires and the legacy trap classifies from the shared log.
-	npm rebuild 2>&1
-
-	if [[ -e "${build_dir}/npm-shrinkwrap.json" ]]; then
-		echo "Installing any new modules (package.json + shrinkwrap)"
-	else
-		echo "Installing any new modules (package.json)"
-	fi
-
-	# npm 12 removed the --unsafe-perm flag and rejects it with EUNKNOWNCONFIG, so only pass it
-	# to the currently-active npm when that npm still accepts it.
-	local unsafe_perm=()
-	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside; a non-match just omits the flag
-	if package_managers::npm::supports_unsafe_perm; then
-		unsafe_perm=(--unsafe-perm)
-	fi
-
-	local npm_command=(
-		npm install --production="${production}" "${unsafe_perm[@]}"
-		--userconfig "${build_dir}/.npmrc"
-	)
-
-	local log_file
-	log_file=$(mktemp)
-
-	local start
-	start=$(build_data::current_unix_realtime)
-
-	# Run inside `if !` so errexit is suppressed and we can inspect the failure ourselves.
-	# Shares the classifier with the fresh-install path (`install_dependencies`) — same
-	# command, same failure surface. The metric name (`npm_rebuild_time`) is kept distinct
-	# from `install_dependencies_time` so the two paths remain separable in observability.
-	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
-	if ! { "${npm_command[@]}" 2>&1 | tee "${log_file}"; }; then
-		local pipe_status=("${PIPESTATUS[@]}")
-		local npm_exit="${pipe_status[0]}"
-		build_data::set_duration "npm_rebuild_time" "${start}"
-
-		local -A failure
-		# shellcheck disable=SC2310 # the elif calls a function in a condition, so set -e is disabled inside
-		if [[ "${npm_exit}" -eq 0 ]]; then
-			package_managers::npm::_handle_install_pipefail "${pipe_status[*]}"
-		elif package_managers::npm::_handle_npm_install_failure "${log_file}" failure; then
-			failure::emit failure
-		fi
-
-		return "${npm_exit}"
-	fi
-
-	build_data::set_duration "npm_rebuild_time" "${start}"
-}
-
 function package_managers::npm::version_major() {
 	npm --version | cut -d "." -f 1
 }
@@ -167,50 +116,6 @@ function package_managers::npm::supports_unsafe_perm() {
 	local major
 	major="$(package_managers::npm::version_major)"
 	[[ "${major}" -lt 12 ]]
-}
-
-# Prints "true" when the build should install via `npm ci` (lockfile-strict) instead of
-# `npm install`. `npm ci` was introduced in the 5.x line in 5.7.0, but that sees very
-# little usage (< 5% of builds), so this gates on npm >= 6.
-function package_managers::npm::should_use_npm_ci() {
-	local build_dir="${1:-}"
-	local major has_lock
-	major="$(package_managers::npm::version_major)"
-	has_lock="$(package_managers::npm::_has_npm_lock "${build_dir}")"
-
-	if [[ -f "${build_dir}/package.json" ]] && [[ "${has_lock}" == "true" ]] && ((major >= 6)); then
-		echo "true"
-	else
-		echo "false"
-	fi
-}
-
-function package_managers::npm::_has_npm_lock() {
-	local build_dir="${1:-}"
-
-	if [[ -f "${build_dir}/package-lock.json" ]] || [[ -f "${build_dir}/npm-shrinkwrap.json" ]]; then
-		echo "true"
-	else
-		echo "false"
-	fi
-}
-
-# Emits the npm-install pipefail failure. Shared by both `install_dependencies` and
-# `rebuild_dependencies`: both run `npm install 2>&1 | tee log`, and a tee-side failure
-# (typically the build ran out of disk space) classifies identically at either call site.
-function package_managers::npm::_handle_install_pipefail() {
-	local pipe_status_str="${1}"
-	local message
-	message=$(
-		cat <<-EOF
-			Error: Unable to capture the npm install log output.
-
-			The dependency install ran, but writing its log to disk failed (for example,
-			the build ran out of disk space). This is not a problem with your
-			dependencies. Please try again.
-		EOF
-	)
-	failure::handle_pipefail "npm-install-pipefail" "${pipe_status_str}" "${message}"
 }
 
 # Pure classifier for npm dependency-install failures.
@@ -368,65 +273,8 @@ function package_managers::npm::_handle_npm_install_failure() {
 		return 0
 	fi
 
-	# npm ERESOLVE code — stable npm v7–v12. Introduced in npm 7.0.0 by arborist v2 (see
-	# workspaces/arborist/lib/place-dep.js#failPeerConflict and
-	# workspaces/arborist/lib/arborist/build-ideal-tree.js#failPeerConflict) and handled first-class
-	# in lib/utils/error-message.js. Indicates the requested dependency tree contains conflicting
-	# peer-dependency requirements. Shared by both npm install call sites
-	# (`install_dependencies` and `rebuild_dependencies`).
-	if grep -qiE 'npm (ERR!|error) code ERESOLVE($| )' "${log_file}"; then
-		__failure["id"]="npm-peer-dependency-conflict"
-		__failure["classification"]="user"
-		__failure["detail"]="ERESOLVE: $(package_managers::npm::_extract_error_detail "${log_file}")"
-		__failure["message"]=$(
-			cat <<-EOF
-				Error: Conflict detected in requested npm dependencies.
-
-				An \`ERESOLVE\` error during installation of npm dependencies means your app
-				contains two or more conflicting versions of the same dependency. This is
-				typically caused by peer dependency requirements of requested dependencies.
-				The error above should contain more detail about which dependencies are in
-				conflict. Use tools like \`npm info <package-name>\` to get details about a
-				package, including its peer dependencies.
-
-				The best way to address this issue is to regularly update your dependency
-				versions to prevent conflicts from happening.
-			EOF
-		)
-		return 0
-	fi
-
-	# npm EUSAGE code — set broadly by npm's `usageError()` (lib/base-cmd.js, stable since v7.6.2),
-	# so gate on the specific "Please update your lock file" message emitted only from
-	# `npm ci` when `validateLockfile()` fails (lib/commands/ci.js, stable since v8.4.1). The
-	# outer EUSAGE match with the discriminator line is what isolates the lockfile-out-of-sync
-	# case from every other EUSAGE sub-case (arg-validation, audit/diff/sbom/etc.), which the
-	# legacy matcher (`_failures.sh:582-596`) also handled this way. Only `install_dependencies`
-	# runs `npm ci`, but this classifier is shared with `rebuild_dependencies` — the latter
-	# only ever runs `npm install`, so it cannot emit this mode; the matcher simply won't fire
-	# there.
-	if grep -qiE 'npm (ERR!|error) code EUSAGE($| )' "${log_file}" \
-		&& grep -qi 'Please update your lock file' "${log_file}"; then
-		__failure["id"]="npm-lockfile-out-of-sync"
-		__failure["classification"]="user"
-		__failure["detail"]="EUSAGE: $(package_managers::npm::_extract_error_detail "${log_file}")"
-		__failure["message"]=$(
-			cat <<-EOF
-				Error: npm lockfile is not in sync.
-
-				This error occurs when the contents of \`package.json\` contains a different
-				set of dependencies than the contents of \`package-lock.json\`. This can happen
-				when a package is added, modified, or removed but the lockfile was not updated.
-
-				To fix this, run \`npm install\` locally in your app directory to regenerate the
-				lockfile, commit the changes to \`package-lock.json\`, and redeploy.
-			EOF
-		)
-		return 0
-	fi
-
 	# TODO: classify additional npm codes present in error-message.js but not yet handled here,
-	# e.g. ETARGET (no matching version), ENOSPC (disk full).
+	# e.g. ETARGET (no matching version), ERESOLVE (dependency conflict), ENOSPC (disk full).
 	# Add each as its own matcher above, verified against npm source per the version-spread loop.
 
 	# No known failure mode recognised — signal no match so the caller can fall through.
@@ -454,7 +302,7 @@ function package_managers::npm::install_binary() {
 	local dir="$2"
 	local npm_lock="$3"
 	# Verify npm works before capturing and ensure its stderr is inspectable later
-	utils::command::suppress_output npm --version
+	suppress_output npm --version
 	npm_version="$(npm --version)"
 
 	# If the user has not specified a version of npm, but has an npm lockfile
@@ -477,7 +325,7 @@ function package_managers::npm::install_binary() {
 		package_managers::npm::_install_binary "${version}"
 		build_data::set_duration "install_npm_binary_time" "${install_npm_start}"
 		# Verify npm works before capturing and ensure its stderr is inspectable later
-		utils::command::suppress_output npm --version
+		suppress_output npm --version
 		local installed_npm_version
 		installed_npm_version="$(npm --version)"
 		echo "npm ${installed_npm_version} installed"
@@ -517,7 +365,7 @@ function package_managers::npm::_install_binary() {
 		fi
 		if [[ "${major}" == "11" ]] && [[ "${minor}" -ge 11 ]]; then
 			echo "Installing npm@~11.10.0 to workaround Node.js 22.22.2 regression (https://github.com/npm/cli/issues/9151)"
-			if ! utils::command::suppress_output npm install "${unsafe_perm[@]}" --quiet --no-audit --no-progress -g "npm@~11.10.0"; then
+			if ! suppress_output npm install "${unsafe_perm[@]}" --quiet --no-audit --no-progress -g "npm@~11.10.0"; then
 				build_data::set_string "failure" "npm-node-22.22.2-workaround-failed"
 				output::error <<-EOF
 					Unable to install intermediate npm ~11.10.0 for Node.js 22.22.2 workaround.
@@ -529,7 +377,7 @@ function package_managers::npm::_install_binary() {
 		fi
 	fi
 
-	if ! utils::command::suppress_output npm install "${unsafe_perm[@]}" --quiet --no-audit --no-progress -g "npm@${version}"; then
+	if ! suppress_output npm install "${unsafe_perm[@]}" --quiet --no-audit --no-progress -g "npm@${version}"; then
 		build_data::set_string "failure" "npm-install-failed"
 		output::error <<-EOF
 			Unable to install npm ${version}.
@@ -538,73 +386,6 @@ function package_managers::npm::_install_binary() {
 		EOF
 		false
 	fi
-}
-
-function package_managers::npm::prune_devdependencies() {
-	local npm_version
-	local build_dir=${1:-}
-
-	npm_version=$(npm --version)
-
-	# NODE_ENV and NPM_CONFIG_PRODUCTION are globals exported by the caller (bin/compile via
-	# lib/environment.sh).
-	# shellcheck disable=SC2154 # set by the caller (bin/compile)
-	if [[ "${NODE_ENV}" == "test" ]]; then
-		echo "Skipping because NODE_ENV is 'test'"
-		build_data::set_raw "skipped_prune" "true"
-		return 0
-	elif [[ "${NODE_ENV}" != "production" ]]; then
-		echo "Skipping because NODE_ENV is not 'production'"
-		build_data::set_raw "skipped_prune" "true"
-		return 0
-	elif [[ -n "${NPM_CONFIG_PRODUCTION}" ]]; then
-		echo "Skipping because NPM_CONFIG_PRODUCTION is '${NPM_CONFIG_PRODUCTION}'"
-		build_data::set_raw "skipped_prune" "true"
-		return 0
-	elif [[ "${npm_version}" == "5.3.0" ]]; then
-		echo "Skipping because npm 5.3.0 fails when running 'npm prune' due to a known issue"
-		echo "https://github.com/npm/npm/issues/17781"
-		echo ""
-		echo "You can silence this warning by updating to at least npm 5.7.1 in your package.json"
-		build_data::set_raw "skipped_prune" "true"
-		return 0
-	elif [[ "${npm_version}" == "5.6.0" ]] \
-		|| [[ "${npm_version}" == "5.5.1" ]] \
-		|| [[ "${npm_version}" == "5.5.0" ]] \
-		|| [[ "${npm_version}" == "5.4.2" ]] \
-		|| [[ "${npm_version}" == "5.4.1" ]] \
-		|| [[ "${npm_version}" == "5.2.0" ]] \
-		|| [[ "${npm_version}" == "5.1.0" ]]; then
-		echo "Skipping because npm ${npm_version} sometimes fails when running 'npm prune' due to a known issue"
-		echo "https://github.com/npm/npm/issues/19356"
-		echo ""
-		echo "You can silence this warning by updating to at least npm 5.7.1 in your package.json"
-		build_data::set_raw "skipped_prune" "true"
-		return 0
-	else
-		cd "${build_dir}" || return
-		monitor "prune_dev_dependencies" npm prune --userconfig "${build_dir}/.npmrc" 2>&1
-		build_data::set_raw "skipped_prune" "false"
-	fi
-}
-
-# Runs a named lifecycle script with npm. Spells the npm-specific command (`npm run <script>
-# --if-present`, forwarding NODE_BUILD_FLAGS after a `--` separator) and hands execution to the
-# shared coordinator runner, which captures output and routes failures. `build_flags` is the
-# optional NODE_BUILD_FLAGS string (empty for prebuild/postbuild/cleanup scripts).
-function package_managers::npm::run_script() {
-	local script_name=${1}
-	local build_flags=${2:-}
-
-	echo "Running ${script_name}"
-
-	local command=(npm run "${script_name}" --if-present)
-	if [[ -n "${build_flags}" ]]; then
-		echo "Running with ${build_flags} flags"
-		command+=(-- "${build_flags}")
-	fi
-
-	package_manager::run_script_command "${command[@]}"
 }
 
 # Restore the sourcing shell's original options (see preamble). errexit/nounset come from the
