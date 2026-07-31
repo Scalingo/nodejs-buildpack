@@ -1,0 +1,513 @@
+#!/usr/bin/env bash
+
+# Enable strict mode for ShellCheck but restore the caller's options at the end of the file
+# (see epilogue) so they don't bleed into un-migrated scripts that source this lib. The
+# caller's flags are read from `$-` (the current shell); a `$(set +o)` capture runs in a
+# command-substitution subshell where bash always forces errexit off, so it would later
+# restore errexit as disabled even when the caller had it on. pipefail has no `$-` letter, so
+# it is captured separately (it is reported correctly inside command substitution).
+# shellcheck disable=SC2034 # both are consumed by the epilogue
+__yarn_saved_flags="$-"
+__yarn_saved_pipefail="$(set +o | grep pipefail)"
+set -euo pipefail
+
+function package_managers::yarn::install_binary() {
+	local dir="${1}"
+	local version=${2:-1.22.x}
+	local package_name url installed_version
+
+	# npm 12 removed the --unsafe-perm flag and rejects it with EUNKNOWNCONFIG, so only pass it
+	# to the currently-active npm when that npm still accepts it.
+	local unsafe_perm=()
+	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside; a non-match just omits the flag
+	if package_managers::npm::supports_unsafe_perm; then
+		unsafe_perm=(--unsafe-perm)
+	fi
+
+	if [[ -n "${YARN_BINARY_URL}" ]]; then
+		url="${YARN_BINARY_URL}"
+		echo "Downloading and installing yarn from ${url}"
+	else
+		echo "Downloading and installing yarn (${version})"
+		# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
+		if ! package_name=$(package_managers::yarn::_determine_package_name "${version}"); then
+			build_data::set_string "failure" "yarn-resolve-failed"
+			output::error <<-EOF
+				Unable to resolve yarn version '${version}' via npm info
+			EOF
+			false
+		fi
+		if ! utils::command::suppress_output npm install "${unsafe_perm[@]}" --quiet --no-audit --no-progress -g "${package_name}@${version}"; then
+			build_data::set_string "failure" "yarn-install-failed"
+			output::error <<-EOF
+				Unable to install yarn ${version}.
+				Does yarn ${version} exist?
+				Is ${version} valid semver?
+				Is yarn ${version} compatible with this Node.js version?
+			EOF
+			false
+		fi
+	fi
+	# Verify yarn works before capturing and ensure its stderr is inspectable later
+	utils::command::suppress_output yarn --version
+	installed_version="$(yarn --version)"
+	# shellcheck disable=SC2154 # YARN_2 is a global set by the caller (bin/compile)
+	if ${YARN_2}; then
+		echo "Using yarn ${installed_version}"
+	else
+		echo "Installed yarn ${installed_version}"
+	fi
+}
+
+# Yarn 2+ (aka: "berry") is hosted under a different npm package so we need to do some
+# extra checking to determine the correct package name.
+function package_managers::yarn::_determine_package_name() {
+	local version="${1}"
+	local NPM_INFO_OUTPUT exit_code
+	NPM_INFO_OUTPUT=$(mktemp)
+
+	# shellcheck disable=SC2064 # expand NPM_INFO_OUTPUT now so the RETURN trap removes this exact temp file
+	trap "rm -rf '${NPM_INFO_OUTPUT}' >/dev/null" RETURN
+
+	npm info "yarn@${version}" version >"${NPM_INFO_OUTPUT}" 2>&1
+	exit_code=$?
+
+	if [[ ${exit_code} -eq 0 ]]; then
+		# There are a couple of 2.x versions in the yarn package list, but that should be okay
+		# since we're using npm to install the binaries. The previous inventory resolver never
+		# handled this case well.
+		echo "yarn"
+		return 0
+	fi
+
+	# If nothing is returned for the yarn package list for the given version, it must be @yarnpkg/cli-dist
+	if grep -q "E404" "${NPM_INFO_OUTPUT}"; then
+		echo "@yarnpkg/cli-dist"
+		return 0
+	fi
+
+	# Handle unexpected output on stderr so it's not captured by command substitution
+	cat "${NPM_INFO_OUTPUT}" >&2
+	return "${exit_code}"
+}
+
+function package_managers::yarn::install_dependencies() {
+	local build_dir="${1:-}"
+	local production="${YARN_PRODUCTION:-false}"
+
+	echo "Installing node modules (yarn.lock)"
+	cd "${build_dir}" || return
+
+	local log_file
+	log_file=$(mktemp)
+
+	local start
+	start=$(build_data::current_unix_realtime)
+
+	# Run inside `if !` so errexit is suppressed and we can inspect the failure ourselves.
+	# Yarn 1 writes progress and errors across stdout+stderr; merge them with `2>&1` and pass the
+	# merged stream through `tee` for classification. Indentation is applied by the enclosing
+	# `build_dependencies | output "$LOG_FILE"` pipe in bin/compile — do not re-indent here or
+	# every yarn line would be indented twice.
+	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
+	if ! { yarn install --production="${production}" --frozen-lockfile --ignore-engines --prefer-offline 2>&1 | tee "${log_file}"; }; then
+		# Capture the full pipe status first (before any other command clobbers PIPESTATUS).
+		# The pipeline is `yarn 2>&1 | tee`, so [0] is yarn's exit code and [1] is tee's.
+		local pipe_status=("${PIPESTATUS[@]}")
+		local yarn_exit="${pipe_status[0]}"
+		build_data::set_duration "install_dependencies_time" "${start}"
+
+		local -A failure
+		# shellcheck disable=SC2310 # the elif calls a function in a condition, so set -e is disabled inside
+		if [[ "${yarn_exit}" -eq 0 ]]; then
+			# yarn succeeded but the pipeline failed (tee couldn't write the log — e.g. out of
+			# disk). Buildpack-side, so don't run it through the yarn classifier.
+			package_managers::yarn::_handle_install_pipefail "${pipe_status[*]}"
+		elif package_managers::yarn::_handle_yarn_classic_install_failure "${log_file}" failure; then
+			# The classifier fills `failure` by nameref and returns 0 on a match. It is invoked
+			# directly in the `elif` condition (not wrapped in `$(...)`) so its writes survive — a
+			# command substitution runs in a subshell where the nameref updates would be lost.
+			failure::emit failure
+		fi
+
+		# No known failure mode recognised. Bubble up by returning yarn's exit code: the pipeline
+		# that runs this install (`build_dependencies | output "$LOG_FILE"`) then fails under
+		# errexit/pipefail, the legacy ERR trap fires, and `log_other_failures` classifies the
+		# failure from $LOG_FILE — covering the yarn 1.x cases (fail_yarn_outdated, fail_yarn_install)
+		# not yet migrated here, instead of masking them with a generic message.
+		return "${yarn_exit}"
+	fi
+
+	build_data::set_duration "install_dependencies_time" "${start}"
+}
+
+# Emits the yarn-install pipefail failure for the yarn install paths (yarn 1.x classic and
+# yarn 2+ Berry share this wrapper — the user-facing wording is flag-agnostic). Wraps
+# `failure::handle_pipefail` with the yarn-specific id and message so callers pass only the
+# joined PIPESTATUS string.
+function package_managers::yarn::_handle_install_pipefail() {
+	local pipe_status_str="${1}"
+	local message
+	message=$(
+		cat <<-EOF
+			Error: Unable to capture the yarn install log output.
+
+			The dependency install ran, but writing its log to disk failed (for example,
+			the build ran out of disk space). This is not a problem with your
+			dependencies. Please try again.
+		EOF
+	)
+	failure::handle_pipefail "yarn-install-pipefail" "${pipe_status_str}" "${message}"
+}
+
+# Pure classifier for yarn 1.x (classic) dependency-install failures. Yarn 2+ (Berry) has a
+# separate install path (`yarn2_install_dependencies`) with its own error surface and is not
+# handled here.
+#
+# Input:
+#   $1  path to a log file containing the captured output of the failed yarn command
+#   $2  name of an associative array to fill (see failure::emit for its fields)
+# Returns 0 and fills the array when a known failure mode is recognised; returns 1 and leaves
+# the array untouched otherwise. Has no side effects: it does not write build data, print to
+# the build log, or exit. Yarn 1 has no numeric error codes, so detail carries the first
+# descriptive `error <line>` from the log (prefix stripped) as a discriminator.
+function package_managers::yarn::_handle_yarn_classic_install_failure() {
+	local log_file="${1}"
+	# shellcheck disable=SC2178 # nameref alias to the caller's associative array, not a string
+	local -n __failure="${2}"
+
+	# Yarn 1.x emits this literal line from src/cli/commands/install.js when --frozen-lockfile
+	# detects a mismatch between package.json and yarn.lock.
+	if grep -qi 'Your lockfile needs to be updated' "${log_file}"; then
+		__failure["id"]="outdated-yarn-lockfile"
+		__failure["classification"]="user"
+		__failure["detail"]="$(package_managers::yarn::_extract_error_detail "${log_file}")"
+		__failure["message"]=$(
+			cat <<-EOF
+				Outdated Yarn lockfile
+
+				Your application's yarn.lock does not match the dependencies in
+				package.json. The yarn.lock records the exact modules Yarn installed,
+				and the build fails when the two drift apart to prevent subtle bugs
+				and security issues.
+
+				This commonly happens when another tool modifies package.json without
+				running yarn install — for example, using npm to add a dependency, or
+				editing a version requirement by hand.
+
+				To fix, run yarn install in your project directory and commit the
+				updated yarn.lock:
+
+				\$ yarn install
+				\$ git add yarn.lock
+				\$ git commit -m "Updated Yarn lockfile"
+				\$ git push scalingo main
+			EOF
+		)
+		return 0
+	fi
+
+	# TODO: classify additional yarn 1.x failures currently handled by the legacy trap
+	# (fail_yarn_outdated, fail_yarn_install) in a follow-up migration.
+
+	# No known failure mode recognised — signal no match so the caller can fall through.
+	return 1
+}
+
+# Returns the first descriptive yarn error line for use as failure detail: the first
+# `error <message>` line, with the `error ` prefix stripped. Yarn 1 has no numeric codes, so
+# the message text itself is the discriminator inside a bucket. Internal helper to
+# package_managers::yarn::_handle_yarn_classic_install_failure; not meant to be called directly.
+function package_managers::yarn::_extract_error_detail() {
+	local log_file="${1}"
+	grep -iE '^error ' "${log_file}" \
+		| head -n 1 \
+		| sed -E 's/^error //I' \
+		|| true
+}
+
+function package_managers::yarn::yarn2_install_dependencies() {
+	local build_dir="${1:-}"
+
+	echo "Running 'yarn install' with yarn.lock"
+	cd "${build_dir}" || return
+
+	local log_file
+	log_file=$(mktemp)
+
+	local start
+	start=$(build_data::current_unix_realtime)
+
+	# Run inside `if !` so errexit is suppressed and we can inspect the failure ourselves.
+	# Berry writes progress and errors across stdout+stderr; merge them with `2>&1` and pass the
+	# merged stream through `tee` for classification. Indentation is applied by the enclosing
+	# `build_dependencies | output "$LOG_FILE"` pipe in bin/compile — do not re-indent here or
+	# every yarn line would be indented twice.
+	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
+	if ! { yarn install --immutable 2>&1 | tee "${log_file}"; }; then
+		# Capture the full pipe status first (before any other command clobbers PIPESTATUS).
+		# The pipeline is `yarn 2>&1 | tee`, so [0] is yarn's exit code and [1] is tee's.
+		local pipe_status=("${PIPESTATUS[@]}")
+		local yarn_exit="${pipe_status[0]}"
+		build_data::set_duration "install_dependencies_time" "${start}"
+
+		local -A failure
+		# shellcheck disable=SC2310 # the elif calls a function in a condition, so set -e is disabled inside
+		if [[ "${yarn_exit}" -eq 0 ]]; then
+			# yarn succeeded but the pipeline failed (tee couldn't write the log — e.g. out of
+			# disk). Buildpack-side, so don't run it through the Berry classifier. Reuses the
+			# shared yarn pipefail wrapper — the user-facing wording covers both yarn 1 and Berry.
+			package_managers::yarn::_handle_install_pipefail "${pipe_status[*]}"
+		elif package_managers::yarn::_handle_yarn_berry_install_failure "${log_file}" failure; then
+			# The classifier fills `failure` by nameref and returns 0 on a match. It is invoked
+			# directly in the `elif` condition (not wrapped in `$(...)`) so its writes survive — a
+			# command substitution runs in a subshell where the nameref updates would be lost.
+			failure::emit failure
+		fi
+
+		# No known failure mode recognised. Bubble up by returning yarn's exit code: the pipeline
+		# that runs this install (`build_dependencies | output "$LOG_FILE"`) then fails under
+		# errexit/pipefail, the legacy ERR trap fires, and `log_other_failures` classifies the
+		# failure from $LOG_FILE — covering the Berry YN codes (e.g. YN0001, YN0018) not yet
+		# migrated here, instead of masking them with a generic message.
+		return "${yarn_exit}"
+	fi
+
+	build_data::set_duration "install_dependencies_time" "${start}"
+}
+
+# Pure classifier for yarn 2+ (Berry) dependency-install failures. Yarn 1.x (classic) has a
+# separate install path (`install_dependencies`) with its own error surface and is not handled
+# here.
+#
+# Input:
+#   $1  path to a log file containing the captured output of the failed yarn command
+#   $2  name of an associative array to fill (see failure::emit for its fields)
+# Returns 0 and fills the array when a known failure mode is recognised; returns 1 and leaves
+# the array untouched otherwise. Has no side effects: it does not write build data, print to
+# the build log, or exit. Detail is set to the Berry YN-code plus the first descriptive
+# framed error line, giving observability a precise discriminator within each failure bucket.
+function package_managers::yarn::_handle_yarn_berry_install_failure() {
+	local log_file="${1}"
+	# shellcheck disable=SC2178 # nameref alias to the caller's associative array, not a string
+	local -n __failure="${2}"
+
+	# YN0028 — Berry refuses to modify yarn.lock under `--immutable`. Emitted from
+	# @yarnpkg/core's install report when the resolution step would have written a new
+	# lockfile (see yarnpkg/berry sources/Report.ts + install command).
+	if grep -qi 'YN0028' "${log_file}"; then
+		__failure["id"]="yarn-lockfile-out-of-sync"
+		__failure["classification"]="user"
+		__failure["detail"]="YN0028: $(package_managers::yarn::_extract_berry_error_detail "${log_file}")"
+		__failure["message"]=$(
+			cat <<-EOF
+				Yarn lockfile is not in sync
+
+				Your application's yarn.lock does not match the dependencies in
+				package.json, and yarn install was run with --immutable so it refused
+				to modify the lockfile. The build fails when the two drift apart to
+				prevent subtle bugs and security issues.
+
+				This commonly happens when another tool modifies package.json without
+				running yarn install — for example, using npm to add a dependency, or
+				editing a version requirement by hand.
+
+				To fix, run yarn install in your project directory and commit the
+				updated yarn.lock:
+
+				\$ yarn install
+				\$ git add yarn.lock
+				\$ git commit -m "Updated Yarn lockfile"
+				\$ git push scalingo main
+			EOF
+		)
+		return 0
+	fi
+
+	# TODO: classify additional Berry YN codes currently handled by the legacy trap in
+	# follow-up migrations (e.g. YN0001 internal error, YN0018 checksum mismatch).
+
+	# No known failure mode recognised — signal no match so the caller can fall through.
+	return 1
+}
+
+# Returns the first descriptive Berry error line for use as failure detail: Berry emits
+# progress and errors as `➤ YN####: <message>` (often with box-drawing framing when inside a
+# report group). Skip YN0000 (informational bookkeeping — "Yarn X.Y.Z", "Resolution step",
+# etc.), grab the first real code line, and strip the arrow/code prefix and box-drawing so the
+# detail carries just the descriptive text alongside the code prefix set by callers. Internal
+# helper to package_managers::yarn::_handle_yarn_berry_install_failure; not meant to be called
+# directly.
+function package_managers::yarn::_extract_berry_error_detail() {
+	local log_file="${1}"
+	grep -aE 'YN[0-9]{4}:' "${log_file}" \
+		| grep -av 'YN0000:' \
+		| head -n 1 \
+		| sed -E 's/.*YN[0-9]{4}:[[:space:]]*//' \
+		| sed -E 's/^[│├└┌─┐┘[:space:]]+//' \
+		|| true
+}
+
+function package_managers::yarn::prune_devdependencies() {
+	local build_dir=${1:-}
+	local buildpack_dir=${2:-}
+
+	# NODE_ENV, YARN_PRODUCTION, YARN_2, and YARN2_SKIP_PRUNING are globals exported by the
+	# caller (bin/compile via lib/environment.sh / the app's config vars).
+	# shellcheck disable=SC2154 # set by the caller (bin/compile)
+	if [[ "${NODE_ENV}" == "test" ]]; then
+		echo "Skipping because NODE_ENV is 'test'"
+		build_data::set_raw "skipped_prune" "true"
+		return 0
+	elif [[ "${NODE_ENV}" != "production" ]]; then
+		echo "Skipping because NODE_ENV is not 'production'"
+		build_data::set_raw "skipped_prune" "true"
+		return 0
+	elif [[ -n "${YARN_PRODUCTION}" ]]; then
+		echo "Skipping because YARN_PRODUCTION is '${YARN_PRODUCTION}'"
+		build_data::set_raw "skipped_prune" "true"
+		return 0
+	elif ${YARN_2}; then
+		if [[ "${YARN2_SKIP_PRUNING}" == "true" ]]; then
+			echo "Skipping because YARN2_SKIP_PRUNING is '${YARN2_SKIP_PRUNING}'"
+			build_data::set_raw "skipped_prune" "true"
+			return 0
+		fi
+		cd "${build_dir}" || return
+		echo "Running 'yarn scalingo prune'"
+		export YARN_PLUGINS="${buildpack_dir}/yarn2-plugins/prune-dev-dependencies/bundles/@yarnpkg/plugin-prune-dev-dependencies.js"
+		monitor "prune_dev_dependencies" yarn scalingo prune
+		# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside; a false result just skips the cache cleanup
+		if package_managers::yarn::_berry_node_modules_enabled "${build_dir}"; then
+			echo "Removing local yarn cache to reduce slug size"
+			rm -rf "${build_dir}/.yarn/cache"
+		fi
+		build_data::set_raw "skipped_prune" "false"
+	else
+		cd "${build_dir}" || return
+		monitor "prune_dev_dependencies" yarn install --frozen-lockfile --ignore-engines --ignore-scripts --prefer-offline 2>&1
+		build_data::set_raw "skipped_prune" "false"
+	fi
+}
+
+function package_managers::yarn::detect_berry() {
+	local uses_yarn="${1}"
+	local build_dir="${2}"
+	local yml_metadata
+	local version
+
+	yml_metadata=$(read_yaml "${build_dir}/yarn.lock" '.__metadata' 2>/dev/null)
+
+	# grep for version in case the output is a parsing error
+	version=$(echo "${yml_metadata}" | grep version)
+
+	if [[ "${uses_yarn}" == "true" && "${version}" != "" ]]; then
+		echo "true"
+	else
+		echo "false"
+	fi
+}
+
+function package_managers::yarn::berry_has_release_script() {
+	local build_dir="${1}"
+	local yarn_path
+	yarn_path=$(read_yaml "${build_dir}/.yarnrc.yml" '.yarnPath' 2>/dev/null)
+	[[ -n "${yarn_path}" && "${yarn_path}" != "null" ]] && [[ -f "${build_dir}/${yarn_path}" ]]
+}
+
+function package_managers::yarn::berry_has_cache() {
+	local build_dir="${1}"
+	local yarn_cache="${build_dir}/.yarn/cache"
+	# shellcheck disable=SC2312 # the boolean test only cares whether the directory is non-empty; masking ls's exit is intentional (matches pre-migration behavior)
+	[[ -d "${yarn_cache}" ]] && [[ -n "$(ls -A "${yarn_cache}")" ]]
+}
+
+function package_managers::yarn::berry_get_path() {
+	local build_dir="${1}"
+	local yarn_path
+	yarn_path=$(read_yaml "${build_dir}/.yarnrc.yml" '.yarnPath' 2>/dev/null)
+	if [[ -n "${yarn_path}" && "${yarn_path}" != "null" ]]; then
+		echo "${yarn_path}"
+	fi
+}
+
+function package_managers::yarn::berry_use_app_cache() {
+	local build_dir="${1}"
+	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside (matches pre-migration behavior)
+	if package_managers::yarn::berry_has_cache "${build_dir}" || ! package_managers::yarn::_berry_node_modules_enabled "${build_dir}"; then
+		return
+	fi
+	false
+}
+
+function package_managers::yarn::_berry_node_modules_enabled() {
+	local build_dir="${1}"
+	local node_linker
+
+	node_linker=$(read_yaml "${build_dir}/.yarnrc.yml" '.nodeLinker' 2>/dev/null)
+
+	[[ "${node_linker}" == "node-modules" ]]
+}
+
+function package_managers::yarn::get_major_version() {
+	local build_dir="${1}"
+	local package_manager yarn_engine version_string
+
+	# Check packageManager field first (e.g., "yarn@4.0.0")
+	package_manager=$(read_json "${build_dir}/package.json" ".packageManager")
+	if [[ "${package_manager}" == yarn@* ]]; then
+		version_string="${package_manager#yarn@}"
+		# Extract major version (e.g., "4.0.0" -> "4", "4.0.0+sha256.abc" -> "4")
+		echo "${version_string}" | cut -d "." -f 1
+		return
+	fi
+
+	# Check engines.yarn field (e.g., "4.x", "^4.0.0", ">=4.0.0")
+	yarn_engine=$(read_json "${build_dir}/package.json" ".engines.yarn")
+	if [[ -n "${yarn_engine}" ]]; then
+		# Extract major version, ignoring any non-numeric prefix
+		version_string=$(echo "${yarn_engine}" | sed -E 's/^[^0-9]*([0-9]+)\.?.*/\1/')
+		if [[ -n "${version_string}" ]]; then
+			echo "${version_string}"
+			return
+		fi
+	fi
+
+	# If we can't determine version, return empty string
+	echo ""
+}
+
+# Runs a named lifecycle script with yarn. Spells the yarn-specific command (`yarn run <script>`,
+# forwarding NODE_BUILD_FLAGS as a trailing argument — yarn takes no `--` separator) and hands
+# execution to the shared coordinator runner, which captures output and routes failures.
+# `build_flags` is the optional NODE_BUILD_FLAGS string (empty for prebuild/postbuild/cleanup
+# scripts). Unlike npm/pnpm, yarn errors on an empty script string, so a script whose body is
+# empty is announced but not run (yarn has no `--if-present` equivalent).
+function package_managers::yarn::run_script() {
+	local build_dir=${1}
+	local script_name=${2}
+	local build_flags=${3:-}
+	local script
+
+	echo "Running ${script_name} (yarn)"
+
+	script=$(read_json "${build_dir}/package.json" ".scripts[\"${script_name}\"]")
+	if [[ -z "${script}" ]]; then
+		return 0
+	fi
+
+	local command=(yarn run "${script_name}")
+	if [[ -n "${build_flags}" ]]; then
+		echo "Running with ${build_flags} flags"
+		command+=("${build_flags}")
+	fi
+
+	package_manager::run_script_command "${command[@]}"
+}
+
+# Restore the sourcing shell's original options (see preamble). errexit/nounset come from the
+# saved `$-`; pipefail from its own saved `set +o` line.
+case "${__yarn_saved_flags}" in *e*) set -e ;; *) set +e ;; esac
+case "${__yarn_saved_flags}" in *u*) set -u ;; *) set +u ;; esac
+eval "${__yarn_saved_pipefail}"
+unset __yarn_saved_flags __yarn_saved_pipefail

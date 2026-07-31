@@ -133,7 +133,7 @@ multiple_lockfiles_fix_steps() {
     echo "       If you use $keep:"
     echo "       \$ git rm ${remove[*]}"
     echo "       \$ git commit -m \"Remove unused lockfiles\""
-    echo "       \$ git push heroku main"
+    echo "       \$ git push scalingo main"
     echo ""
   done
 }
@@ -229,29 +229,6 @@ fail_yarn_outdated() {
          \"yarn\": \"1.3.2\"
        }
     " "https://doc.scalingo.com/languages/nodejs/start#specifying-a-nodejs-version"
-    fail
-  fi
-}
-
-fail_yarn_lockfile_outdated() {
-  local log_file="$1"
-  if grep -qi 'Your lockfile needs to be updated' "$log_file"; then
-    build_data::set_string "failure" "outdated-yarn-lockfile"
-    echo ""
-    warn "Outdated Yarn lockfile
-
-       Your application contains a Yarn lockfile (yarn.lock) which does not
-       match the dependencies in package.json. This can happen if you use npm
-       to install or update a dependency instead of Yarn.
-
-       Please run the following command in your application directory and check
-       in the new yarn.lock file:
-
-       $ yarn install
-       $ git add yarn.lock
-       $ git commit -m \"Updated Yarn lockfile\"
-       $ git push scalingo master
-    " "https://doc.scalingo.com/languages/javascript/nodejs/#dependencies-installation"
     fail
   fi
 }
@@ -605,41 +582,6 @@ log_other_failures() {
     fail
   fi
 
-  if grep -q "npm error code EUSAGE" "$log_file"; then
-    if grep -q "Please update your lock file" "$log_file"; then
-      build_data::set_string "failure" "npm-lockfile-out-of-sync"
-      warn "npm lockfile is not in sync
-
-       This error occurs when the contents of \`package.json\` contains a different
-       set of dependencies that the contents of \`package-lock.json\`. This can happen
-       when a package is added, modified, or removed but the lockfile was not updated.
-
-       To fix this, run \`npm install\` locally in your app directory to regenerate the
-       lockfile, commit the changes to \`package-lock.json\`, and redeploy.
-      "
-      fail
-    fi
-  fi
-
-  # For now, only capture this error if it doesn't happen during the pruning step. This error shouldn't make
-  # it past the initial `npm install` (but it can) and it would be nice to see when this type of error slips through.
-  if grep -q "npm error code ERESOLVE" "$log_file" && [[ "$(build_data::get_current "build_step")" != "prune-dependencies" ]]; then
-    build_data::set_string "failure" "npm-peer-dependency-conflict"
-    warn "Conflict detected in requested npm dependencies
-
-       An \`ERESOLVE\` error during installation of npm dependencies means your app contains two or more conflicting
-       versions of the same dependency. This is typically caused by peer dependency requirements of requested dependencies.
-       The error above should contain more detail about which dependencies are in conflict. Use tools like \`npm info <package-name>\`
-       to get details about a package, including it's peer dependencies.
-
-       The best way to address this issue is to regularly update your dependency versions to prevent conflicts from happening.
-
-       If that is not possible, a temporary solution is to set the \`NPM_CONFIG_LEGACY_PEER_DEPS\` environment variable to \`true\`.
-       This should be used with caution as ignoring peer dependency conflicts can lead to unexpected runtime errors.
-    "
-    fail
-  fi
-
   if grep -q "ERR_OSSL_EVP_UNSUPPORTED" "$log_file"; then
     local solution
     local help_url
@@ -691,20 +633,6 @@ log_other_failures() {
        For example, \`NODE_OPTIONS=\"--max-old-space-size=4096\"\` would set a limit of 4GB. This should
        be done with caution as it doesn't solve the underlying issue of why this build requires higher
        memory limits.
-    "
-    fail
-  fi
-
-  if grep -q "YN0028" "$log_file"; then
-    build_data::set_string "failure" "yarn-lockfile-out-of-sync"
-    warn "Yarn lockfile is not in sync
-
-       This error occurs when the contents of \`package.json\` contains a different
-       set of dependencies that the contents of \`yarn.lock\`. This can happen
-       when a package is added, modified, or removed but the lockfile was not updated.
-
-       To fix this, run \`yarn install\` locally in your app directory to regenerate the
-       lockfile, commit the changes to \`yarn.lock\`, and redeploy.
     "
     fail
   fi
