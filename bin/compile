@@ -23,6 +23,8 @@ BP_DIR=$(cd "$(dirname "${0:-}")"; cd ..; pwd)
 
 ### Load dependencies
 
+# shellcheck source=lib/vendor/stdlib_v7.sh
+source "$BP_DIR/lib/vendor/stdlib_v7.sh"
 # shellcheck source=lib/output.sh
 source "$BP_DIR/lib/output.sh"
 # shellcheck source=lib/monitor.sh
@@ -35,14 +37,12 @@ source "$BP_DIR/lib/failures.sh"
 source "$BP_DIR/lib/package_managers/npm.sh"
 # shellcheck source=lib/package_managers/pnpm.sh
 source "$BP_DIR/lib/package_managers/pnpm.sh"
-# shellcheck source=lib/package_managers/yarn.sh
-source "$BP_DIR/lib/package_managers/yarn.sh"
 # shellcheck source=lib/_failures.sh
 source "$BP_DIR/lib/_failures.sh"
 # shellcheck source=lib/runtimes/nodejs.sh
 source "$BP_DIR/lib/runtimes/nodejs.sh"
-# shellcheck source=lib/utils/command.sh
-source "$BP_DIR/lib/utils/command.sh"
+# shellcheck source=lib/binaries.sh
+source "$BP_DIR/lib/binaries.sh"
 # shellcheck source=lib/json.sh
 source "$BP_DIR/lib/json.sh"
 # shellcheck source=lib/yaml.sh
@@ -51,10 +51,18 @@ source "$BP_DIR/lib/yaml.sh"
 source "$BP_DIR/lib/cache.sh"
 # shellcheck source=lib/dependencies.sh
 source "$BP_DIR/lib/dependencies.sh"
-# shellcheck source=lib/package_manager.sh
-source "$BP_DIR/lib/package_manager.sh"
+# shellcheck source=lib/plugin.sh
+source "$BP_DIR/lib/plugin.sh"
+# shellcheck source=lib/uuid.sh
+source "$BP_DIR/lib/uuid.sh"
+# shellcheck source=lib/kvstore.sh
+source "$BP_DIR/lib/kvstore.sh"
+# shellcheck source=lib/features.sh
+source "$BP_DIR/lib/features.sh"
 # shellcheck source=lib/builddata.sh
 source "$BP_DIR/lib/builddata.sh"
+# shellcheck source=lib/yarn-2.sh
+source "$BP_DIR/lib/yarn-2.sh"
 # Load meteor framework related functions
 source $BP_DIR/bin/meteor.sh
 if test -n "$meteor_version" ; then
@@ -79,7 +87,8 @@ export FAILURE_EMITTED_MARKER="${LOG_FILE}.emitted"
 
 build_start_time=$(build_data::current_unix_realtime)
 
-### Initialize metrics
+### Initialize metrics and features
+features_init "nodejs" "$BUILD_DIR" "$CACHE_DIR" "$BP_DIR/features"
 build_data::setup
 
 ### Save build info
@@ -97,6 +106,13 @@ for script in scalingo-prebuild scalingo-postbuild build scalingo-cleanup start 
   fi
 done
 
+# add any active features to the metadata set prefixed with the key "feature_"
+features_list | while read -r key; do
+  if [[ -n $key ]]; then
+    build_data::set_raw "feature_$key" "$(features_get "$key")"
+  fi
+done
+
 ### Handle errors
 
 handle_failure() {
@@ -108,6 +124,7 @@ handle_failure() {
     header "Build failed"
     fail_using_yarn2_with_yarn_production_environment_variable_set "$LOG_FILE"
     fail_yarn_outdated "$LOG_FILE"
+    fail_yarn_lockfile_outdated "$LOG_FILE"
     fail_yarn_install "$LOG_FILE" "$BUILD_DIR"
     log_other_failures "$LOG_FILE"
     warn_untracked_dependencies "$LOG_FILE"
@@ -124,7 +141,7 @@ trap 'handle_failure' ERR
 [ -f "$BUILD_DIR/yarn.lock" ] && YARN=true || YARN=false
 [ -f "$BUILD_DIR/package-lock.json" ] && NPM_LOCK=true || NPM_LOCK=false
 [ -f "$BUILD_DIR/pnpm-lock.yaml" ] && PNPM=true || PNPM=false
-YARN_2=$(package_managers::yarn::detect_berry "$YARN" "$BUILD_DIR")
+YARN_2=$(detect_yarn_2 "$YARN" "$BUILD_DIR")
 
 ### Failures that should be caught immediately
 
@@ -171,19 +188,19 @@ if [[ "$YARN_2" == "true" ]]; then
   # runtime; the cache must live in /app (not /tmp) so that dependencies are
   # persisted. When using zero-install, /app/.yarn/cache will include all
   # dependencies which yarn should reuse.
-  if package_managers::yarn::berry_use_app_cache "$BUILD_DIR"; then
+  if use_yarn_app_cache "$BUILD_DIR"; then
     YARN_CACHE_FOLDER=${YARN_CACHE_FOLDER:-"$BUILD_DIR/.yarn/cache"}
   fi
 
   # When in zero-install mode, use --immutable-cache to verify that the cache
   # is pristine. Cache mutation is expected in nonzero installs.
-  if package_managers::yarn::berry_has_cache "$BUILD_DIR"; then
+  if has_yarn_cache "$BUILD_DIR"; then
     YARN_ENABLE_IMMUTABLE_CACHE=${YARN_ENABLE_IMMUTABLE_CACHE:-true}
     YARN_ZERO_INSTALL=true
   fi
 
   ### Configure Yarn 2+
-  YARN_MAJOR_VERSION=$(package_managers::yarn::get_major_version "$BUILD_DIR")
+  YARN_MAJOR_VERSION=$(get_yarn_major_version "$BUILD_DIR")
 
   # if we're installing yarn via packageManager or engines.yarn we don't need to fail
   # on the yarn path configuration or vendored script
@@ -195,13 +212,13 @@ if [[ "$YARN_2" == "true" ]]; then
     1|"")
       # This ensures we check for a vendored Yarn if we're using Yarn 1 to bootstrap
       fail_missing_yarnrc_yml "$BUILD_DIR"
-      VENDOR_PATH=$(package_managers::yarn::berry_get_path "$BUILD_DIR")
+      VENDOR_PATH=$(get_yarn_path "$BUILD_DIR")
       fail_missing_yarn_path "$BUILD_DIR" "$VENDOR_PATH"
       ;;
     *)
       # no need to require a vendored yarnPath (though one may still be configured)
       if [[ -f "$BUILD_DIR/.yarnrc.yml" ]]; then
-        VENDOR_PATH=$(package_managers::yarn::berry_get_path "$BUILD_DIR")
+        VENDOR_PATH=$(get_yarn_path "$BUILD_DIR")
       fi
       ;;
   esac
@@ -287,10 +304,10 @@ install_bins() {
 		EOF
   fi
 
-  if package_managers::yarn::berry_has_release_script "$BUILD_DIR" && [[ "$package_manager" == yarn* ]]; then
+  if has_release_script "$BUILD_DIR" && [[ "$package_manager" == yarn* ]]; then
     showed_warning=true
     local release_script
-    release_script="$(package_managers::yarn::berry_get_path "$BUILD_DIR")"
+    release_script="$(get_yarn_path "$BUILD_DIR")"
     output::warning <<-EOF
 			Yarn release script may conflict with "packageManager"
 
@@ -321,11 +338,11 @@ install_bins() {
   build_data::set_string "build_step" "install-npm"
   package_managers::npm::install_binary "$npm_engine" "$BUILD_DIR/.scalingo/node" "$NPM_LOCK"
 
-  if ! package_managers::yarn::berry_has_release_script "$BUILD_DIR" && [[ "$package_manager" == yarn* ]]; then
+  if ! has_release_script "$BUILD_DIR" && [[ "$package_manager" == yarn* ]]; then
     build_data::set_string "build_step" "install-yarn"
     yarn_version="$(echo "$package_manager" | cut -d '@' -f 2 | cut -d "#" -f 1)"
     install_start=$(build_data::current_unix_realtime)
-    package_managers::yarn::install_binary "$BUILD_DIR/.scalingo/yarn" "$yarn_version"
+    install_yarn "$BUILD_DIR/.scalingo/yarn" "$yarn_version"
     build_data::set_duration "install_yarn_binary_time" "$install_start"
   else
     # Download yarn if there is a yarn.lock file or if the user
@@ -334,7 +351,7 @@ install_bins() {
     if $YARN || [ -n "$yarn_engine" ]; then
       build_data::set_string "build_step" "install-yarn"
       install_start=$(build_data::current_unix_realtime)
-      package_managers::yarn::install_binary "$BUILD_DIR/.scalingo/yarn" "$yarn_engine"
+      install_yarn "$BUILD_DIR/.scalingo/yarn" "$yarn_engine"
       build_data::set_duration "install_yarn_binary_time" "$install_start"
     fi
   fi
@@ -354,7 +371,7 @@ install_bins() {
     fi
 
     install_start=$(build_data::current_unix_realtime)
-    package_managers::pnpm::install_binary "$pnpm_version"
+    install_pnpm "$pnpm_version"
     build_data::set_duration "install_pnpm_binary_time" "$install_start"
     if [ "$using_default_pnpm" == true ]; then
       output::warning <<-EOF
@@ -443,7 +460,7 @@ if $PNPM; then
 fi
 
 if [[ -z "$USE_NPM_INSTALL" ]]; then
-  if [[ "$(package_managers::npm::should_use_npm_ci "$BUILD_DIR")" == "true" ]]; then
+  if [[ "$(should_use_npm_ci "$BUILD_DIR")" == "true" ]]; then
     USE_NPM_INSTALL=false
   else
     USE_NPM_INSTALL=true
@@ -510,25 +527,25 @@ build_dependencies() {
   cache_status="$(get_cache_status "$CACHE_DIR")"
   start=$(build_data::current_unix_realtime)
   if [[ "$YARN_2" == "true" ]]; then
-    package_managers::yarn::yarn2_install_dependencies "$BUILD_DIR"
+    yarn_2_install "$BUILD_DIR"
   elif $YARN; then
-    package_managers::yarn::install_dependencies "$BUILD_DIR"
+    yarn_node_modules "$BUILD_DIR"
   elif $PNPM; then
     package_managers::pnpm::install_dependencies "$BUILD_DIR" "$CACHE_DIR"
   elif $PREBUILD; then
     echo "Prebuild detected (node_modules already exists)"
-    package_managers::npm::rebuild_dependencies "$BUILD_DIR"
+    npm_rebuild "$BUILD_DIR"
   else
     package_managers::npm::install_dependencies "$BUILD_DIR"
   fi
 
   build_data::set_string "build_step" "build-script"
   header "Build"
-  package_manager::run_build_script "$BUILD_DIR"
+  run_build_script "$BUILD_DIR"
 }
 
 build_data::set_string "build_step" "prebuild-script"
-package_manager::run_prebuild_script "$BUILD_DIR" | output "$LOG_FILE"
+run_prebuild_script "$BUILD_DIR" | output "$LOG_FILE"
 
 header "Installing dependencies" | output "$LOG_FILE"
 build_data::set_string "build_step" "install-dependencies"
@@ -557,11 +574,11 @@ cache_build() {
 
 prune_devdependencies() {
   if $YARN || $YARN_2; then
-    package_managers::yarn::prune_devdependencies "$BUILD_DIR" "$BP_DIR"
+    yarn_prune_devdependencies "$BUILD_DIR" "$YARN_CACHE_FOLDER" "$BP_DIR"
   elif $PNPM; then
-    package_managers::pnpm::prune_devdependencies "$BUILD_DIR"
+    pnpm_prune_devdependencies "$BUILD_DIR"
   else
-    package_managers::npm::prune_devdependencies "$BUILD_DIR"
+    npm_prune_devdependencies "$BUILD_DIR"
   fi
 }
 
@@ -592,8 +609,7 @@ if test -n "$meteor_version"; then
   build_meteor_app $BUILD_DIR $CACHE_DIR
 fi
 
-build_data::set_string "build_step" "cleanup-script"
-package_manager::run_cleanup_script "$BUILD_DIR" | output "$LOG_FILE"
+run_cleanup_script "$BUILD_DIR" | output "$LOG_FILE"
 
 summarize_build() {
   if $NODE_VERBOSE; then
@@ -602,7 +618,7 @@ summarize_build() {
 }
 
 build_data::set_string "build_step" "install-metrics-plugin"
-runtimes::nodejs::install_metrics_plugin "$BP_DIR" "$BUILD_DIR"
+install_plugin "$BP_DIR" "$BUILD_DIR"
 
 build_data::set_string "build_step" "summarize"
 summarize_build | output "$LOG_FILE"
