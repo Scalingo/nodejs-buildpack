@@ -376,7 +376,7 @@ function package_managers::yarn::prune_devdependencies() {
 		cd "${build_dir}" || return
 		echo "Running 'yarn scalingo prune'"
 		export YARN_PLUGINS="${buildpack_dir}/yarn2-plugins/prune-dev-dependencies/bundles/@yarnpkg/plugin-prune-dev-dependencies.js"
-		monitor "prune_dev_dependencies" yarn scalingo prune
+		monitor "prune_dev_dependencies" yarn heroku prune
 		# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside; a false result just skips the cache cleanup
 		if package_managers::yarn::_berry_node_modules_enabled "${build_dir}"; then
 			echo "Removing local yarn cache to reduce slug size"
