@@ -32,7 +32,47 @@ package_managers::pnpm::install_dependencies() {
 		esac
 	fi
 
-	monitor "install_dependencies" pnpm "${pnpm_install_args[@]}" 2>&1
+	local log_file
+	log_file=$(mktemp)
+
+	local start
+	start=$(build_data::current_unix_realtime)
+
+	# Run inside `if !` so errexit is suppressed and we can inspect the failure ourselves.
+	# pnpm writes progress and errors across stdout+stderr; merge them with `2>&1` and pass the
+	# merged stream through `tee` for classification. Indentation is applied by the enclosing
+	# `build_dependencies | output "$LOG_FILE"` pipe in bin/compile — do not re-indent here or
+	# every pnpm line would be indented twice.
+	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
+	if ! { pnpm "${pnpm_install_args[@]}" 2>&1 | tee "${log_file}"; }; then
+		# Capture the full pipe status first (before any other command clobbers PIPESTATUS).
+		# The pipeline is `pnpm 2>&1 | tee`, so [0] is pnpm's exit code and [1] is tee's.
+		local pipe_status=("${PIPESTATUS[@]}")
+		local pnpm_exit="${pipe_status[0]}"
+		build_data::set_duration "install_dependencies_time" "${start}"
+
+		local -A failure
+		# shellcheck disable=SC2310 # the elif calls a function in a condition, so set -e is disabled inside
+		if [[ "${pnpm_exit}" -eq 0 ]]; then
+			# pnpm succeeded but the pipeline failed (tee couldn't write the log — e.g. out of
+			# disk). Buildpack-side, so don't run it through the pnpm classifier.
+			package_managers::pnpm::_handle_install_pipefail "${pipe_status[*]}"
+		elif package_managers::pnpm::_handle_install_failure "${log_file}" failure; then
+			# The classifier fills `failure` by nameref and returns 0 on a match. It is invoked
+			# directly in the `elif` condition (not wrapped in `$(...)`) so its writes survive — a
+			# command substitution runs in a subshell where the nameref updates would be lost.
+			failure::emit failure
+		fi
+
+		# No known failure mode recognised. Bubble up by returning pnpm's exit code: the pipeline
+		# that runs this install (`build_dependencies | output "$LOG_FILE"`) then fails under
+		# errexit/pipefail, the legacy ERR trap fires, and `log_other_failures` classifies the
+		# failure from $LOG_FILE — covering the pnpm codes not yet migrated here, instead of
+		# masking them with a generic message.
+		return "${pnpm_exit}"
+	fi
+
+	build_data::set_duration "install_dependencies_time" "${start}"
 
 	# prune the store when the counter reaches zero to clean up errant package versions which may have been upgraded/removed
 	counter=$(load_pnpm_prune_store_counter "${cache_dir}")
@@ -57,6 +97,149 @@ package_managers::pnpm::install_dependencies() {
 		fi
 	fi
 	save_pnpm_prune_store_counter "${cache_dir}" "$((counter - 1))"
+}
+
+# Emits the pnpm-install pipefail failure for the case where pnpm exited 0 but a downstream
+# pipe stage (typically `tee` writing to the log) failed — for example the build ran out of
+# disk space. Wraps `failure::handle_pipefail` with the pnpm-specific id and message so callers
+# pass only the joined PIPESTATUS string.
+function package_managers::pnpm::_handle_install_pipefail() {
+	local pipe_status_str="${1}"
+	local message
+	message=$(
+		cat <<-EOF
+			Error: Unable to capture the pnpm install log output.
+
+			The dependency install ran, but writing its log to disk failed (for example,
+			the build ran out of disk space). This is not a problem with your
+			dependencies. Please try again.
+		EOF
+	)
+	failure::handle_pipefail "pnpm-install-pipefail" "${pipe_status_str}" "${message}"
+}
+
+# Emits the pnpm-prune pipefail failure. Both prune paths (`pnpm install --prod` for workspaces
+# and `pnpm prune --prod` otherwise) run `pnpm 2>&1 | tee log`, and a tee-side failure (typically
+# the build ran out of disk space) classifies as buildpack-side rather than blaming the app's
+# dependencies. Callers pass only the joined PIPESTATUS string.
+function package_managers::pnpm::_handle_prune_pipefail() {
+	local pipe_status_str="${1}"
+	local message
+	message=$(
+		cat <<-EOF
+			Error: Unable to capture the pnpm prune log output.
+
+			The dependency prune ran, but writing its log to disk failed (for example,
+			the build ran out of disk space). This is not a problem with your
+			dependencies. Please try again.
+		EOF
+	)
+	failure::handle_pipefail "pnpm-prune-pipefail" "${pipe_status_str}" "${message}"
+}
+
+# Runs a pnpm dev-dependency prune command with call-site failure classification. Shared by both
+# prune strategies: the workspace path (`pnpm install --prod --frozen-lockfile`, a production
+# reinstall) and the non-workspace path (`pnpm prune --prod [--ignore-scripts]`). Both record the
+# same `prune_dev_dependencies_time` metric and have the same failure surface — a tee-side pipe
+# failure is buildpack-side; any pnpm tool failure bubbles to the legacy trap — so the two paths
+# differ only in the command, which the caller passes as arguments.
+function package_managers::pnpm::_run_prune() {
+	local prune_command=("$@")
+
+	local log_file
+	log_file=$(mktemp)
+
+	local start
+	start=$(build_data::current_unix_realtime)
+
+	# Run inside `if !` so errexit is suppressed and we can inspect the failure ourselves.
+	# pnpm writes progress and errors across stdout+stderr; merge them with `2>&1` and pass the
+	# merged stream through `tee` for classification. Indentation is applied by the enclosing
+	# `prune_devdependencies | output "$LOG_FILE"` pipe in bin/compile — do not re-indent here or
+	# every pnpm line would be indented twice.
+	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
+	if ! { "${prune_command[@]}" 2>&1 | tee "${log_file}"; }; then
+		# Capture the full pipe status first (before any other command clobbers PIPESTATUS).
+		# The pipeline is `pnpm 2>&1 | tee`, so [0] is pnpm's exit code and [1] is tee's.
+		local pipe_status=("${PIPESTATUS[@]}")
+		local pnpm_exit="${pipe_status[0]}"
+		build_data::set_duration "prune_dev_dependencies_time" "${start}"
+
+		if [[ "${pnpm_exit}" -eq 0 ]]; then
+			# pnpm succeeded but the pipeline failed (tee couldn't write the log — e.g. out of
+			# disk). Buildpack-side, so don't blame the app.
+			package_managers::pnpm::_handle_prune_pipefail "${pipe_status[*]}"
+		fi
+
+		# No known failure mode recognised. Bubble up by returning pnpm's exit code: the pipeline
+		# that runs this prune (`prune_devdependencies | output "$LOG_FILE"`) then fails under
+		# errexit/pipefail, the legacy ERR trap fires, and `log_other_failures` classifies the
+		# failure — there is no migrated pnpm-prune tool-error classifier to add here yet.
+		return "${pnpm_exit}"
+	fi
+
+	build_data::set_duration "prune_dev_dependencies_time" "${start}"
+	build_data::set_raw "skipped_prune" "false"
+}
+
+# Pure classifier for pnpm dependency-install failures.
+#
+# Input:
+#   $1  path to a log file containing the captured output of the failed pnpm command
+#   $2  name of an associative array to fill (see failure::emit for its fields)
+# Returns 0 and fills the array when a known failure mode is recognised; returns 1 and leaves
+# the array untouched otherwise. Has no side effects: it does not write build data, print to
+# the build log, or exit. Detail is set to the pnpm error code plus the first descriptive error
+# line, giving observability a precise discriminator within each failure bucket.
+function package_managers::pnpm::_handle_install_failure() {
+	local log_file="${1}"
+	# shellcheck disable=SC2178 # nameref alias to the caller's associative array, not a string
+	local -n __failure="${2}"
+
+	# ERR_PNPM_OUTDATED_LOCKFILE — pnpm refuses to install under `--frozen-lockfile` when
+	# pnpm-lock.yaml has drifted from package.json (thrown from pnpm's install index.ts). Gate on
+	# the stable error code rather than the message, which has drifted across pnpm versions. The
+	# ERR_PNPM_ prefix is stamped by the PnpmError constructor and survives in non-TTY dynos even
+	# when chalk wraps it in ANSI color.
+	if grep -qi 'ERR_PNPM_OUTDATED_LOCKFILE' "${log_file}"; then
+		__failure["id"]="pnpm-lockfile-out-of-sync"
+		__failure["classification"]="user"
+		__failure["detail"]="ERR_PNPM_OUTDATED_LOCKFILE: $(package_managers::pnpm::_extract_error_detail "${log_file}")"
+		__failure["message"]=$(
+			cat <<-EOF
+				Error: pnpm lockfile is not in sync.
+
+				This error occurs when the contents of \`package.json\` contains a different
+				set of dependencies than the contents of \`pnpm-lock.yaml\`. This can happen
+				when a package is added, modified, or removed but the lockfile was not updated.
+
+				To fix this, run \`pnpm install\` locally in your app directory to regenerate the
+				lockfile, commit the changes to \`pnpm-lock.yaml\`, and redeploy.
+			EOF
+		)
+		return 0
+	fi
+
+	# TODO: classify additional pnpm codes surfaced by pnpm's default reporter but not yet handled
+	# here, e.g. ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE (lockfile format-version mismatch),
+	# ERR_PNPM_NO_MATCHING_VERSION, ERR_PNPM_FETCH_401/403/404, ERR_PNPM_PEER_DEP_ISSUES, ELIFECYCLE.
+	# Add each as its own matcher above, verified against pnpm source.
+
+	# No known failure mode recognised — signal no match so the caller can fall through.
+	return 1
+}
+
+# Returns the first descriptive pnpm error line for use as failure detail: pnpm's default
+# reporter renders the summary as `[ERR_PNPM_<CODE>] <message>`, so grab that first line and
+# strip the leading `[CODE] ` bracket prefix. `|| true` so a no-match never trips errexit.
+# Internal helper to package_managers::pnpm::_handle_install_failure; not meant to be called
+# directly.
+function package_managers::pnpm::_extract_error_detail() {
+	local log_file="${1}"
+	grep -aE '^\[ERR_PNPM_[A-Z_]+\]' "${log_file}" \
+		| head -n 1 \
+		| sed -E 's/^\[[A-Z_]+\][[:space:]]*//' \
+		|| true
 }
 
 function package_managers::pnpm::prune_devdependencies() {
@@ -104,8 +287,7 @@ function package_managers::pnpm::prune_devdependencies() {
 			rm -rf "${project_path}/node_modules"
 		done
 		# Reinstall with production-only dependencies
-		monitor "prune_dev_dependencies" pnpm install --prod --frozen-lockfile 2>&1
-		build_data::set_raw "skipped_prune" "false"
+		package_managers::pnpm::_run_prune pnpm install --prod --frozen-lockfile
 		return 0
 	fi
 
@@ -134,9 +316,7 @@ function package_managers::pnpm::prune_devdependencies() {
 		pnpm_prune_args+=("--ignore-scripts")
 	fi
 
-	monitor "prune_dev_dependencies" pnpm "${pnpm_prune_args[@]}" 2>&1
-
-	build_data::set_raw "skipped_prune" "false"
+	package_managers::pnpm::_run_prune pnpm "${pnpm_prune_args[@]}"
 }
 
 function package_managers::pnpm::_workspace_configured() {
@@ -213,6 +393,15 @@ function package_managers::pnpm::run_script() {
 	fi
 
 	package_manager::run_script_command "${command[@]}"
+}
+
+# Lists installed top-level dependencies for the verbose build summary. Wrapped in `|| true` and
+# `2>/dev/null` so a listing failure never aborts the summary.
+function package_managers::pnpm::list_dependencies() {
+	local build_dir=${1:-}
+
+	cd "${build_dir}" || return
+	(pnpm list --depth=0 || true) 2>/dev/null
 }
 
 # Restore the sourcing shell's original options (see preamble). errexit/nounset come from the

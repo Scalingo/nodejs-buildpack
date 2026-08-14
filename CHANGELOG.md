@@ -18,6 +18,17 @@
 ## [Unreleased]
 
 
+## [v362] - 2026-08-07
+
+- Added Node.js 26.7.0 (linux-amd64)
+
+## [v361] - 2026-08-03
+
+- Added Node.js 26.6.0 (linux-amd64)
+- Added Node.js 24.19.0 (linux-amd64)
+- Migrated the pnpm lockfile-out-of-sync (`ERR_PNPM_OUTDATED_LOCKFILE`) build error onto the call-site failure-classification framework. ([#1735](https://github.com/heroku/heroku-buildpack-nodejs/pull/1735))
+- Added pnpm to verbose build-summary dependency listing. ([#1737](https://github.com/heroku/heroku-buildpack-nodejs/pull/1737))
+
 ## [v360] - 2026-07-29
 
 - Added Node.js 26.5.1 (linux-amd64)
@@ -1402,7 +1413,9 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v360...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v362...main
+[v362]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v361...v362
+[v361]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v360...v361
 [v360]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v359...v360
 [v359]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v358...v359
 [v358]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v357...v358
