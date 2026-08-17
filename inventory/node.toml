@@ -454,6 +454,13 @@ url = "https://nodejs.org/download/release/v23.0.0/node-v23.0.0-linux-x64.tar.gz
 checksum = "sha256:702cbc710fcf1102cef1aced74443fee34eff8df4827de30ec970d377ce31d9e"
 
 [[artifacts]]
+version = "22.23.2"
+os = "linux"
+arch = "amd64"
+url = "https://nodejs.org/download/release/v22.23.2/node-v22.23.2-linux-x64.tar.gz"
+checksum = "sha256:b294a556e639d64338823920e5866c21c02741742d2e1529ee1a225c1ec9252a"
+
+[[artifacts]]
 version = "22.23.1"
 os = "linux"
 arch = "amd64"

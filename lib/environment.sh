@@ -4,20 +4,6 @@ get_os() {
   uname | tr '[:upper:]' '[:lower:]'
 }
 
-get_cpu() {
-  if [[ "$(uname -p)" = "i686" ]]; then
-    echo "x86"
-  else
-    echo "x64"
-  fi
-}
-
-get_platform() {
-  os=$(get_os)
-  cpu=$(get_cpu)
-  echo "$os-$cpu"
-}
-
 create_default_env() {
   local YARN=$1
 
@@ -89,13 +75,6 @@ write_ci_profile() {
   local build_dir="$2"
   write_profile "$1" "$2"
   cp "$bp_dir"/ci-profile/* "$build_dir/.profile.d/"
-}
-
-write_ci_profile() {
-  local bp_dir="$1"
-  local build_dir="$2"
-  write_profile "$1" "$2"
-  cp $bp_dir/ci-profile/* $build_dir/.profile.d/
 }
 
 write_export() {
