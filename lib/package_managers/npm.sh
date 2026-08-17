@@ -388,6 +388,129 @@ function package_managers::npm::_install_binary() {
 	fi
 }
 
+function package_managers::npm::prune_devdependencies() {
+	local npm_version
+	local build_dir=${1:-}
+
+	npm_version=$(npm --version)
+
+	# NODE_ENV and NPM_CONFIG_PRODUCTION are globals exported by the caller (bin/compile via
+	# lib/environment.sh).
+	# shellcheck disable=SC2154 # set by the caller (bin/compile)
+	if [[ "${NODE_ENV}" == "test" ]]; then
+		echo "Skipping because NODE_ENV is 'test'"
+		build_data::set_raw "skipped_prune" "true"
+		return 0
+	elif [[ "${NODE_ENV}" != "production" ]]; then
+		echo "Skipping because NODE_ENV is not 'production'"
+		build_data::set_raw "skipped_prune" "true"
+		return 0
+	elif [[ -n "${NPM_CONFIG_PRODUCTION}" ]]; then
+		echo "Skipping because NPM_CONFIG_PRODUCTION is '${NPM_CONFIG_PRODUCTION}'"
+		build_data::set_raw "skipped_prune" "true"
+		return 0
+	elif [[ "${npm_version}" == "5.3.0" ]]; then
+		echo "Skipping because npm 5.3.0 fails when running 'npm prune' due to a known issue"
+		echo "https://github.com/npm/npm/issues/17781"
+		echo ""
+		echo "You can silence this warning by updating to at least npm 5.7.1 in your package.json"
+		build_data::set_raw "skipped_prune" "true"
+		return 0
+	elif [[ "${npm_version}" == "5.6.0" ]] \
+		|| [[ "${npm_version}" == "5.5.1" ]] \
+		|| [[ "${npm_version}" == "5.5.0" ]] \
+		|| [[ "${npm_version}" == "5.4.2" ]] \
+		|| [[ "${npm_version}" == "5.4.1" ]] \
+		|| [[ "${npm_version}" == "5.2.0" ]] \
+		|| [[ "${npm_version}" == "5.1.0" ]]; then
+		echo "Skipping because npm ${npm_version} sometimes fails when running 'npm prune' due to a known issue"
+		echo "https://github.com/npm/npm/issues/19356"
+		echo ""
+		echo "You can silence this warning by updating to at least npm 5.7.1 in your package.json"
+		build_data::set_raw "skipped_prune" "true"
+		return 0
+	else
+		cd "${build_dir}" || return
+
+		local log_file
+		log_file=$(mktemp)
+
+		local start
+		start=$(build_data::current_unix_realtime)
+
+		# Run inside `if !` so errexit is suppressed and we can inspect the failure ourselves.
+		# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
+		if ! { npm prune --userconfig "${build_dir}/.npmrc" 2>&1 | tee "${log_file}"; }; then
+			# Capture the full pipe status first (before any other command clobbers PIPESTATUS).
+			# The pipeline is `npm 2>&1 | tee`, so [0] is npm's exit code and [1] is tee's.
+			local pipe_status=("${PIPESTATUS[@]}")
+			local npm_exit="${pipe_status[0]}"
+			build_data::set_duration "prune_dev_dependencies_time" "${start}"
+
+			if [[ "${npm_exit}" -eq 0 ]]; then
+				# npm succeeded but the pipeline failed (tee couldn't write the log — e.g. out of
+				# disk). Buildpack-side, so don't blame the app.
+				package_managers::npm::_handle_prune_pipefail "${pipe_status[*]}"
+			fi
+
+			# No known failure mode recognised. Bubble up by returning npm's exit code: the pipeline
+			# that runs this prune (`prune_devdependencies | output "$LOG_FILE"`) then fails under
+			# errexit/pipefail, the legacy ERR trap fires, and `log_other_failures` classifies the
+			# failure — there is no migrated npm-prune tool-error classifier to add here yet.
+			return "${npm_exit}"
+		fi
+
+		build_data::set_duration "prune_dev_dependencies_time" "${start}"
+		build_data::set_raw "skipped_prune" "false"
+	fi
+}
+
+# Emits the npm-prune pipefail failure. `prune_devdependencies` runs
+# `npm prune 2>&1 | tee log`, and a tee-side failure (typically the build ran out of disk
+# space) classifies as buildpack-side rather than blaming the app's dependencies.
+function package_managers::npm::_handle_prune_pipefail() {
+	local pipe_status_str="${1}"
+	local message
+	message=$(
+		cat <<-EOF
+			Error: Unable to capture the npm prune log output.
+
+			The dependency prune ran, but writing its log to disk failed (for example,
+			the build ran out of disk space). This is not a problem with your
+			dependencies. Please try again.
+		EOF
+	)
+	failure::handle_pipefail "npm-prune-pipefail" "${pipe_status_str}" "${message}"
+}
+
+# Runs a named lifecycle script with npm. Spells the npm-specific command (`npm run <script>
+# --if-present`, forwarding NODE_BUILD_FLAGS after a `--` separator) and hands execution to the
+# shared coordinator runner, which captures output and routes failures. `build_flags` is the
+# optional NODE_BUILD_FLAGS string (empty for prebuild/postbuild/cleanup scripts).
+function package_managers::npm::run_script() {
+	local script_name=${1}
+	local build_flags=${2:-}
+
+	echo "Running ${script_name}"
+
+	local command=(npm run "${script_name}" --if-present)
+	if [[ -n "${build_flags}" ]]; then
+		echo "Running with ${build_flags} flags"
+		command+=(-- "${build_flags}")
+	fi
+
+	package_manager::run_script_command "${command[@]}"
+}
+
+# Lists installed top-level dependencies for the verbose build summary. Wrapped in `|| true` and
+# `2>/dev/null` so a listing failure never aborts the summary.
+function package_managers::npm::list_dependencies() {
+	local build_dir=${1:-}
+
+	cd "${build_dir}" || return
+	(npm ls --depth=0 || true) 2>/dev/null
+}
+
 # Restore the sourcing shell's original options (see preamble). errexit/nounset come from the
 # saved `$-`; pipefail from its own saved `set +o` line.
 case "${__npm_saved_flags}" in *e*) set -e ;; *) set +e ;; esac

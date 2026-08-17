@@ -133,7 +133,7 @@ multiple_lockfiles_fix_steps() {
     echo "       If you use $keep:"
     echo "       \$ git rm ${remove[*]}"
     echo "       \$ git commit -m \"Remove unused lockfiles\""
-    echo "       \$ git push heroku main"
+    echo "       \$ git push scalingo main"
     echo ""
   done
 }
