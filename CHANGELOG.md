@@ -17,6 +17,30 @@
 
 ## [Unreleased]
 
+## [v362] - 2026-08-07
+
+- Added Node.js 26.7.0 (linux-amd64)
+
+## [v361] - 2026-08-03
+
+- Added Node.js 26.6.0 (linux-amd64)
+- Added Node.js 24.19.0 (linux-amd64)
+- Migrated the pnpm lockfile-out-of-sync (`ERR_PNPM_OUTDATED_LOCKFILE`) build error onto the call-site failure-classification framework. ([#1735](https://github.com/heroku/heroku-buildpack-nodejs/pull/1735))
+- Added pnpm to verbose build-summary dependency listing. ([#1737](https://github.com/heroku/heroku-buildpack-nodejs/pull/1737))
+
+## [v360] - 2026-07-29
+
+- Added Node.js 26.5.1 (linux-amd64)
+- Added Node.js 24.18.1 (linux-amd64)
+- Added Node.js 22.23.2 (linux-amd64)
+- Migrated the Yarn 2+ (Berry) lockfile-out-of-sync (`YN0028`) build error onto the call-site failure-classification framework. ([#1726](https://github.com/heroku/heroku-buildpack-nodejs/pull/1726))
+- Migrated the npm lockfile-out-of-sync (`EUSAGE`) build error onto the call-site failure-classification framework. ([#1727](https://github.com/heroku/heroku-buildpack-nodejs/pull/1727))
+
+## [v359] - 2026-07-27
+
+- Removed the unused `lib/features.sh` A/B rollout module. ([#1719](https://github.com/heroku/heroku-buildpack-nodejs/pull/1719))
+- Migrated the npm peer-dependency-conflict (`ERESOLVE`) build error onto the call-site failure-classification framework. ([#1720](https://github.com/heroku/heroku-buildpack-nodejs/pull/1720))
+- Migrated the Yarn 1.x outdated-yarn-lockfile build error onto the call-site failure-classification framework. ([#1721](https://github.com/heroku/heroku-buildpack-nodejs/pull/1721))
 
 ## [v358] - 2026-07-09
 
@@ -169,7 +193,7 @@
 
 ## [v328] - 2026-02-02
 
-- Support pnpm workspace pruning. ([#1535](https://github.com/heroku/heroku-buildpack-nodejs/pull/1535)) 
+- Support pnpm workspace pruning. ([#1535](https://github.com/heroku/heroku-buildpack-nodejs/pull/1535))
 - Fix pnpm workspace detection. ([#1528](https://github.com/heroku/heroku-buildpack-nodejs/pull/1528))
 - Fixed issue with parsing pnpm version from the `packageManager` field when an integrity check is present. ([#1540](https://github.com/heroku/heroku-buildpack-nodejs/pull/1540))
 
@@ -207,7 +231,7 @@
 
 ## [v320] - 2025-12-03
 
-- Updated default Node.js version to 24.x. ([#1510](https://github.com/heroku/heroku-buildpack-nodejs/pull/1510)) 
+- Updated default Node.js version to 24.x. ([#1510](https://github.com/heroku/heroku-buildpack-nodejs/pull/1510))
 
 ## [v319] - 2025-11-26
 
@@ -281,7 +305,7 @@
 
 - Added Node.js 24.6.0 (linux-amd64)
 - Fix escaping for buildpack metrics. ([#1451](https://github.com/heroku/heroku-buildpack-nodejs/pull/1451))
-- Remove calls to unsupported metrics format (i.e.; `mcount`, `mtime`, `mmeasure`) ([#1454](https://github.com/heroku/heroku-buildpack-nodejs/pull/1454)) 
+- Remove calls to unsupported metrics format (i.e.; `mcount`, `mtime`, `mmeasure`) ([#1454](https://github.com/heroku/heroku-buildpack-nodejs/pull/1454))
 
 ## [v303] - 2025-08-05
 
@@ -1388,7 +1412,11 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v358...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v362...main
+[v362]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v361...v362
+[v361]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v360...v361
+[v360]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v359...v360
+[v359]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v358...v359
 [v358]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v357...v358
 [v357]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v356...v357
 [v356]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v355...v356
