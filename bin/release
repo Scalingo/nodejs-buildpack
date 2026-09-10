@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # bin/release <build-dir>
 
+set -euo pipefail
+shopt -s inherit_errexit
+
 BUILD_DIR=${1:-}
 
-if [ -d "$1/.meteor" ] ; then
+if [[ -d "${BUILD_DIR}/.meteor" ]]; then
 	cat << EOF
 addons: ["mongo-sandbox"]
 default_process_types:
   web: ./.start-meteor-app
 EOF
 else
-	if [ -f "$BUILD_DIR/Procfile" ] && grep -q -e "^\s*mcp.*:" "$BUILD_DIR/Procfile"; then
+	if [[ -f "${BUILD_DIR}/Procfile" ]] && grep -q -e "^\s*mcp.*:" "${BUILD_DIR}/Procfile"; then
 		cat << EOF
 addons: []
 default_process_types: {}
