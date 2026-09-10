@@ -639,11 +639,7 @@ build_data::set_duration "build_time" "${build_start_time}"
 
 if [[ -n "${meteor_version}" ]]; then
 	rm -r "${BUILD_DIR}/node_modules"
-else
-	warn_no_start "${BUILD_DIR}"
-	warn_unmet_dep "${LOG_FILE}"
 fi
-warn_old_npm_lockfile "${NPM_LOCK}"
 
 if ! [[ -e "${BUILD_DIR}/Procfile" ]]; then
 	start_script=$(utils::json::read "${BUILD_DIR}/package.json" ".scripts.start")
