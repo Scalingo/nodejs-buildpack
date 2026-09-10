@@ -17,6 +17,26 @@
 
 ## [Unreleased]
 
+## [v366] - 2026-09-09
+
+- Added Node.js 24.21.0 (linux-amd64)
+
+## [v365] - 2026-08-27
+
+- Added Node.js 26.8.1 (linux-amd64)
+
+## [v364] - 2026-08-26
+
+- Added Node.js 26.8.0 (linux-amd64)
+- Added Node.js 24.20.0 (linux-amd64)
+
+## [v363] - 2026-08-18
+
+- Completed the migration of build-failure classification off the legacy global `ERR` trap onto the call-site failure-classification framework. ([#1764](https://github.com/heroku/heroku-buildpack-nodejs/pull/1764))
+- Replaced the classifying `ERR` trap in `bin/compile` with a single generic fallback handler. ([#1764](https://github.com/heroku/heroku-buildpack-nodejs/pull/1764))
+- Removed the post-failure "tip" warnings that ran after any failed build. ([#1764](https://github.com/heroku/heroku-buildpack-nodejs/pull/1764))
+- Build warnings and failure messages now print to stderr. ([#1764](https://github.com/heroku/heroku-buildpack-nodejs/pull/1764))
+
 ## [v362] - 2026-08-07
 
 - Added Node.js 26.7.0 (linux-amd64)
@@ -1412,7 +1432,11 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v362...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v366...main
+[v366]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v365...v366
+[v365]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v364...v365
+[v364]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v363...v364
+[v363]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v362...v363
 [v362]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v361...v362
 [v361]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v360...v361
 [v360]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v359...v360

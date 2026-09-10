@@ -15,7 +15,7 @@ package_managers::pnpm::install_dependencies() {
 	local build_dir=${1:-}
 	local cache_dir=${2:-}
 
-	echo "Running 'pnpm install' with pnpm-lock.yaml"
+	output::info "Running 'pnpm install' with pnpm-lock.yaml"
 	cd "${build_dir}" || return
 
 	pnpm_install_args=("install" "--prod=false" "--frozen-lockfile")
@@ -26,8 +26,8 @@ package_managers::pnpm::install_dependencies() {
 				pnpm_install_args+=("--reporter=${PNPM_INSTALL_REPORTER}")
 				;;
 			*)
-				echo "Warning: Invalid PNPM_INSTALL_REPORTER value '${PNPM_INSTALL_REPORTER}'. Valid values: default, ndjson, append-only, silent"
-				echo "Proceeding with default reporter"
+				output::info "Warning: Invalid PNPM_INSTALL_REPORTER value '${PNPM_INSTALL_REPORTER}'. Valid values: default, ndjson, append-only, silent"
+				output::info "Proceeding with default reporter"
 				;;
 		esac
 	fi
@@ -39,14 +39,12 @@ package_managers::pnpm::install_dependencies() {
 	start=$(build_data::current_unix_realtime)
 
 	# Run inside `if !` so errexit is suppressed and we can inspect the failure ourselves.
-	# pnpm writes progress and errors across stdout+stderr; merge them with `2>&1` and pass the
-	# merged stream through `tee` for classification. Indentation is applied by the enclosing
-	# `build_dependencies | output "$LOG_FILE"` pipe in bin/compile — do not re-indent here or
-	# every pnpm line would be indented twice.
+	# pnpm writes progress and errors across stdout+stderr; merge them with `2>&1`, pass the
+	# merged stream through `tee` for classification, and indent it with `output::indent`.
 	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
-	if ! { pnpm "${pnpm_install_args[@]}" 2>&1 | tee "${log_file}"; }; then
+	if ! { pnpm "${pnpm_install_args[@]}" 2>&1 | tee "${log_file}" | output::indent; }; then
 		# Capture the full pipe status first (before any other command clobbers PIPESTATUS).
-		# The pipeline is `pnpm 2>&1 | tee`, so [0] is pnpm's exit code and [1] is tee's.
+		# The pipeline is `pnpm 2>&1 | tee | output::indent`, so [0] is pnpm's exit code (tee is [1], output::indent [2]).
 		local pipe_status=("${PIPESTATUS[@]}")
 		local pnpm_exit="${pipe_status[0]}"
 		build_data::set_duration "install_dependencies_time" "${start}"
@@ -57,27 +55,41 @@ package_managers::pnpm::install_dependencies() {
 			# pnpm succeeded but the pipeline failed (tee couldn't write the log — e.g. out of
 			# disk). Buildpack-side, so don't run it through the pnpm classifier.
 			package_managers::pnpm::_handle_install_pipefail "${pipe_status[*]}"
+		elif failure::handle_git_auth_failure "${log_file}" failure; then
+			# A private git+ssh dependency failed SSH host-key verification. This is a
+			# cross-cutting git-layer failure (every package manager shells out to git), so it is
+			# classified before the pnpm-specific matcher below.
+			failure::emit failure
 		elif package_managers::pnpm::_handle_install_failure "${log_file}" failure; then
 			# The classifier fills `failure` by nameref and returns 0 on a match. It is invoked
 			# directly in the `elif` condition (not wrapped in `$(...)`) so its writes survive — a
 			# command substitution runs in a subshell where the nameref updates would be lost.
 			failure::emit failure
+		elif failure::handle_econnreset "${log_file}" failure; then
+			# A network connection was reset. This is a cross-cutting network-layer failure
+			# (every package manager can hit it). Checked last, as a fallback after the
+			# pnpm-specific matcher above.
+			failure::emit failure
+		elif failure::handle_libc6_incompatibility "${log_file}" failure; then
+			# The Node.js binary itself is incompatible with the current stack's glibc. This is a
+			# cross-cutting runtime-layer failure (not a pnpm error code). Checked last, as a
+			# fallback after the pnpm-specific matcher above.
+			failure::emit failure
 		fi
 
-		# No known failure mode recognised. Bubble up by returning pnpm's exit code: the pipeline
-		# that runs this install (`build_dependencies | output "$LOG_FILE"`) then fails under
-		# errexit/pipefail, the legacy ERR trap fires, and `log_other_failures` classifies the
-		# failure from $LOG_FILE — covering the pnpm codes not yet migrated here, instead of
-		# masking them with a generic message.
+		# No known failure mode recognised. Bubble up by returning pnpm's exit code: the bare
+		# `build_dependencies` call in bin/compile then fails under errexit and the generic
+		# failure::handle_uncaught ERR trap records it as failure=internal-error — covering the
+		# pnpm codes not yet migrated here.
 		return "${pnpm_exit}"
 	fi
 
 	build_data::set_duration "install_dependencies_time" "${start}"
 
 	# prune the store when the counter reaches zero to clean up errant package versions which may have been upgraded/removed
-	counter=$(load_pnpm_prune_store_counter "${cache_dir}")
+	counter=$(cache::load_pnpm_prune_store_counter "${cache_dir}")
 	if ((counter == 0)); then
-		echo "Cleaning up pnpm store"
+		output::info "Cleaning up pnpm store"
 		# pnpm <9.12.0 errors with `ENOENT: ... scandir '<store>/v*/files'`
 		# when the store has no fetched package files (e.g. an install with
 		# no external dependencies), because pnpm only creates that
@@ -92,11 +104,11 @@ package_managers::pnpm::install_dependencies() {
 		trap "rm -f '${prune_output}' >/dev/null" RETURN
 		pnpm store prune >"${prune_output}" 2>&1 || prune_exit=$?
 		if ((prune_exit != 0)) && ! grep -qE "ENOENT.*scandir" "${prune_output}"; then
-			cat "${prune_output}"
+			output::indent <"${prune_output}"
 			return "${prune_exit}"
 		fi
 	fi
-	save_pnpm_prune_store_counter "${cache_dir}" "$((counter - 1))"
+	cache::save_pnpm_prune_store_counter "${cache_dir}" "$((counter - 1))"
 }
 
 # Emits the pnpm-install pipefail failure for the case where pnpm exited 0 but a downstream
@@ -141,8 +153,9 @@ function package_managers::pnpm::_handle_prune_pipefail() {
 # prune strategies: the workspace path (`pnpm install --prod --frozen-lockfile`, a production
 # reinstall) and the non-workspace path (`pnpm prune --prod [--ignore-scripts]`). Both record the
 # same `prune_dev_dependencies_time` metric and have the same failure surface — a tee-side pipe
-# failure is buildpack-side; any pnpm tool failure bubbles to the legacy trap — so the two paths
-# differ only in the command, which the caller passes as arguments.
+# failure is buildpack-side, and a git+ssh host-key failure is classified generically (see below);
+# any other pnpm tool failure bubbles to the generic ERR-trap fallback — so the two paths differ only in the
+# command, which the caller passes as arguments.
 function package_managers::pnpm::_run_prune() {
 	local prune_command=("$@")
 
@@ -153,28 +166,44 @@ function package_managers::pnpm::_run_prune() {
 	start=$(build_data::current_unix_realtime)
 
 	# Run inside `if !` so errexit is suppressed and we can inspect the failure ourselves.
-	# pnpm writes progress and errors across stdout+stderr; merge them with `2>&1` and pass the
-	# merged stream through `tee` for classification. Indentation is applied by the enclosing
-	# `prune_devdependencies | output "$LOG_FILE"` pipe in bin/compile — do not re-indent here or
-	# every pnpm line would be indented twice.
+	# pnpm writes progress and errors across stdout+stderr; merge them with `2>&1`, pass the
+	# merged stream through `tee` for classification, and indent it with `output::indent`.
 	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
-	if ! { "${prune_command[@]}" 2>&1 | tee "${log_file}"; }; then
+	if ! { "${prune_command[@]}" 2>&1 | tee "${log_file}" | output::indent; }; then
 		# Capture the full pipe status first (before any other command clobbers PIPESTATUS).
-		# The pipeline is `pnpm 2>&1 | tee`, so [0] is pnpm's exit code and [1] is tee's.
+		# The pipeline is `pnpm 2>&1 | tee | output::indent`, so [0] is pnpm's exit code (tee is [1], output::indent [2]).
 		local pipe_status=("${PIPESTATUS[@]}")
 		local pnpm_exit="${pipe_status[0]}"
 		build_data::set_duration "prune_dev_dependencies_time" "${start}"
 
+		local -A failure
+		# shellcheck disable=SC2310 # the elif calls a function in a condition, so set -e is disabled inside
 		if [[ "${pnpm_exit}" -eq 0 ]]; then
 			# pnpm succeeded but the pipeline failed (tee couldn't write the log — e.g. out of
 			# disk). Buildpack-side, so don't blame the app.
 			package_managers::pnpm::_handle_prune_pipefail "${pipe_status[*]}"
+		elif failure::handle_git_auth_failure "${log_file}" failure; then
+			# Only the workspace reinstall variant (`pnpm install --prod --frozen-lockfile`) can
+			# hit this — it re-fetches dependencies and can re-trigger a git+ssh host-key failure.
+			# The non-workspace `pnpm prune` path never touches git, so this simply never matches
+			# there.
+			failure::emit failure
+		elif failure::handle_econnreset "${log_file}" failure; then
+			# Only the workspace reinstall variant can re-fetch dependencies and hit a network
+			# reset the same way a fresh install can; the non-workspace `pnpm prune` path never
+			# hits the network, so this simply never matches there.
+			failure::emit failure
+		elif failure::handle_libc6_incompatibility "${log_file}" failure; then
+			# The Node.js binary itself is incompatible with the current stack's glibc. Unlike the
+			# git-auth/econnreset checks above, this can surface on either prune path (it's the
+			# Node.js binary invoked by pnpm that fails to start, not a re-fetch).
+			failure::emit failure
 		fi
 
-		# No known failure mode recognised. Bubble up by returning pnpm's exit code: the pipeline
-		# that runs this prune (`prune_devdependencies | output "$LOG_FILE"`) then fails under
-		# errexit/pipefail, the legacy ERR trap fires, and `log_other_failures` classifies the
-		# failure — there is no migrated pnpm-prune tool-error classifier to add here yet.
+		# No known failure mode recognised. Bubble up by returning pnpm's exit code: the bare
+		# `prune_devdependencies` call in bin/compile then fails under errexit and the generic
+		# failure::handle_uncaught ERR trap records it as failure=internal-error — there is no
+		# migrated pnpm-prune tool-error classifier to add here yet.
 		return "${pnpm_exit}"
 	fi
 
@@ -251,15 +280,15 @@ function package_managers::pnpm::prune_devdependencies() {
 	# lib/environment.sh / the app's config vars).
 	# shellcheck disable=SC2154 # set by the caller (bin/compile)
 	if [[ "${NODE_ENV}" == "test" ]]; then
-		echo "Skipping because NODE_ENV is 'test'"
+		output::info "Skipping because NODE_ENV is 'test'"
 		build_data::set_raw "skipped_prune" "true"
 		return 0
 	elif [[ "${NODE_ENV}" != "production" ]]; then
-		echo "Skipping because NODE_ENV is not 'production'"
+		output::info "Skipping because NODE_ENV is not 'production'"
 		build_data::set_raw "skipped_prune" "true"
 		return 0
 	elif [[ "${PNPM_SKIP_PRUNING}" == "true" ]]; then
-		echo "Skipping because PNPM_SKIP_PRUNING is '${PNPM_SKIP_PRUNING}'"
+		output::info "Skipping because PNPM_SKIP_PRUNING is '${PNPM_SKIP_PRUNING}'"
 		build_data::set_raw "skipped_prune" "true"
 		return 0
 	fi
@@ -277,7 +306,20 @@ function package_managers::pnpm::prune_devdependencies() {
 		for project_path in "${project_paths[@]}"; do
 			# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
 			if package_managers::pnpm::_has_lifecycle_script "${project_path}/package.json"; then
-				warn_skipping_unsafe_pnpm_workspace_prune "${project_path}"
+				output::warning <<-EOF
+					Pruning skipped due to presence of lifecycle scripts
+
+					Lifecycle scripts were detected in the \`package.json\` file at \`${project_path}\`. Due to how
+					workspace pruning in pnpm operates, it will execute the following lifecycle scripts declared
+					in package.json during reinstallation of prod dependencies which can cause build failures:
+					- pnpm:devPreinstall
+					- preinstall
+					- install
+					- postinstall
+					- prepare
+
+					Since pruning can't be done safely for your build, it will be skipped.
+				EOF
 				build_data::set_raw "skipped_prune" "true"
 				return 0
 			fi
@@ -307,7 +349,22 @@ function package_managers::pnpm::prune_devdependencies() {
 		|| ((pnpm_major_version == 8 && pnpm_minor_version == 15 && pnpm_patch_version < 6)); then
 		# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
 		if package_managers::pnpm::_has_lifecycle_script "${build_dir}/package.json"; then
-			warn_skipping_unsafe_pnpm_prune "${pnpm_version}"
+			output::warning <<-EOF
+				Pruning skipped due to presence of lifecycle scripts
+
+				The version of pnpm used (${pnpm_version}) will execute the following lifecycle scripts
+				declared in package.json during pruning which can cause build failures:
+				- pnpm:devPreinstall
+				- preinstall
+				- install
+				- postinstall
+				- prepare
+
+				Since pruning can't be done safely for your build, it will be skipped. To fix this you
+				must upgrade your version of pnpm to 8.15.6 or higher.
+
+				https://devcenter.heroku.com/articles/nodejs-support
+			EOF
 			build_data::set_raw "skipped_prune" "true"
 			return
 		fi
@@ -327,7 +384,7 @@ function package_managers::pnpm::_workspace_configured() {
 	if [[ -f "${workspace_file}" ]]; then
 		# prior to pnpm 10.5.0, the `packages` key was mandatory, but now, you can store
 		# other pnpm-related config settings in `pnpm-workspace.yaml`.
-		result=$(read_yaml "${workspace_file}" '.packages')
+		result=$(utils::yaml::read "${workspace_file}" '.packages')
 
 		if [[ -n "${result}" && "${result}" != "null" ]]; then
 			echo "true"
@@ -347,12 +404,14 @@ function package_managers::pnpm::_has_lifecycle_script() {
 }
 
 function package_managers::pnpm::_list_workspace_projects() {
-	pnpm list --recursive --json --depth -1 2>/dev/null | jq -r '.[].path'
+	# `|| true` so a non-zero `pnpm list` (or empty workspace) can't abort the <(…) subshell under
+	# inherit_errexit — its exit is intentionally not consulted (see caller).
+	pnpm list --recursive --json --depth -1 2>/dev/null | jq -r '.[].path' || true
 }
 
 function package_managers::pnpm::install_binary() {
 	local version="$1"
-	echo "Downloading and installing pnpm (${version})"
+	output::info "Downloading and installing pnpm (${version})"
 	# npm 12 removed the --unsafe-perm flag and rejects it with EUNKNOWNCONFIG, so only pass it
 	# to the currently-active npm when that npm still accepts it.
 	local unsafe_perm=()
@@ -360,6 +419,7 @@ function package_managers::pnpm::install_binary() {
 	if package_managers::npm::supports_unsafe_perm; then
 		unsafe_perm=(--unsafe-perm)
 	fi
+	# shellcheck disable=SC2310 # invoked in a condition so set -e is disabled inside
 	if ! utils::command::suppress_output npm install "${unsafe_perm[@]}" --quiet --no-audit --no-progress -g "pnpm@${version}"; then
 		build_data::set_string "failure" "pnpm-install-failed"
 		output::error <<-EOF
@@ -373,7 +433,7 @@ function package_managers::pnpm::install_binary() {
 	# Verify pnpm works before capturing and ensure its stderr is inspectable later
 	utils::command::suppress_output pnpm --version
 	# shellcheck disable=SC2312 # the preceding utils::command::suppress_output already verified pnpm works, so masking its exit here is intentional (matches pre-migration behavior)
-	echo "Using pnpm $(pnpm --version)"
+	output::info "Using pnpm $(pnpm --version || true)"
 }
 
 # Runs a named lifecycle script with pnpm. Spells the pnpm-specific command (`pnpm run
@@ -384,11 +444,11 @@ function package_managers::pnpm::run_script() {
 	local script_name=${1}
 	local build_flags=${2:-}
 
-	echo "Running ${script_name}"
+	output::info "Running ${script_name}"
 
 	local command=(pnpm run --if-present "${script_name}")
 	if [[ -n "${build_flags}" ]]; then
-		echo "Running with ${build_flags} flags"
+		output::info "Running with ${build_flags} flags"
 		command+=(-- "${build_flags}")
 	fi
 
