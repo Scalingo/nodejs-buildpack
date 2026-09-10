@@ -99,8 +99,8 @@ function package_managers::yarn::fail_if_yarn_production_env_set_on_berry() {
 			To fix, remove YARN_PRODUCTION and use YARN2_SKIP_PRUNING to control
 			whether devDependencies are pruned after the build:
 
-			\$ heroku config:unset YARN_PRODUCTION
-			\$ heroku config:set YARN2_SKIP_PRUNING=${skip_pruning}
+			\$ scalingo --app my-app env-unset YARN_PRODUCTION
+			\$ scalingo --app my-app env-set YARN2_SKIP_PRUNING=${skip_pruning}
 		EOF
 	)
 	failure::emit failure
@@ -297,8 +297,6 @@ function package_managers::yarn::_handle_yarn_classic_install_failure() {
 				"engines": {
 				  "yarn": "1.3.2"
 				}
-
-				https://devcenter.heroku.com/articles/nodejs-support#specifying-a-yarn-version
 			EOF
 		)
 		return 0
@@ -382,8 +380,6 @@ function package_managers::yarn::_match_classic_registry_404() {
 					On November 26th (2018), npm was notified of a malicious package that had made
 					its way into event-stream, a popular npm package. npm responded by removing
 					flatmap-stream and event-stream@3.3.6 from the registry.
-
-					Docs: https://help.heroku.com/4OM7X18J
 				EOF
 			)
 			return 0
@@ -837,7 +833,7 @@ function package_managers::yarn::fail_missing_yarnrc_yml() {
 
 				It looks like the 'yarnrc.yml' file is missing from this project. Please
 				make sure this file is checked into version control and made available to
-				Heroku.
+				Scalingo.
 
 				To generate 'yarnrc.yml', make sure Yarn 2 is installed on your local
 				machine and set the version in your project directory with:
@@ -845,7 +841,6 @@ function package_managers::yarn::fail_missing_yarnrc_yml() {
 				 \$ yarn set version berry
 
 				Read more at the Yarn docs: https://yarnpkg.com/getting-started/install#per-project-install
-				https://devcenter.heroku.com/articles/nodejs-support
 			EOF
 		)
 		failure::emit failure
@@ -880,7 +875,6 @@ function package_managers::yarn::fail_missing_yarn_path() {
 				 \$ yarn set version berry
 
 				Read more at the Yarn docs: https://yarnpkg.com/getting-started/install#per-project-install
-				https://devcenter.heroku.com/articles/nodejs-support
 			EOF
 		)
 		failure::emit failure
@@ -906,7 +900,7 @@ function package_managers::yarn::fail_missing_yarn_vendor() {
 				Yarn was not found
 
 				It looks like yarn is missing from ${yarn_path}, which is needed to continue
-				this build on Heroku. Yarn 2 recommends vendoring Yarn under the '.yarn/releases'
+				this build on Scalingo. Yarn 2 recommends vendoring Yarn under the '.yarn/releases'
 				directory, so remember to check the '.yarn' directory into version control
 				to use during builds.
 
@@ -917,7 +911,6 @@ function package_managers::yarn::fail_missing_yarn_vendor() {
 				 \$ yarn set version berry
 
 				Read more at the Yarn docs: https://yarnpkg.com/getting-started/install#per-project-install
-				https://devcenter.heroku.com/articles/nodejs-support
 			EOF
 		)
 		failure::emit failure

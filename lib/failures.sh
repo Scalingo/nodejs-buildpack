@@ -129,8 +129,7 @@ function failure::handle_uncaught() {
 				${stack_trace}
 
 				Review the build log above for the cause. If this looks like a bug in the
-				buildpack rather than your app, open a support ticket:
-				https://help.heroku.com/
+				buildpack rather than your app, open a support ticket.
 			EOF
 		)
 	)
@@ -188,7 +187,7 @@ function failure::handle_git_auth_failure() {
 
 				One of your dependencies points at a private git repository over SSH
 				(git+ssh://), and the host key / SSH authentication was not available during
-				the build. Heroku builds do not have access to your SSH keys, so they cannot
+				the build. Scalingo builds do not have access to your SSH keys, so they cannot
 				authenticate to a private git remote.
 
 				Update the dependency to use an https git URL with an access token, or point
@@ -300,11 +299,10 @@ function failure::handle_libc6_incompatibility() {
 			cat <<-EOF
 				This Node.js version is not compatible with the current stack.
 
-				For Node.js versions 18 and greater, heroku-22 or newer is required.
+				For Node.js versions 18 and greater, scalingo-22 or newer is required.
 				Consider updating to a stack that is compatible with the Node.js version
 				or pinning the Node.js version to be compatible with the current
 				stack.
-				https://help.heroku.com/R7DTSTD0
 			EOF
 		)
 		return 0

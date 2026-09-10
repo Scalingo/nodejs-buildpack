@@ -362,8 +362,6 @@ function package_managers::pnpm::prune_devdependencies() {
 
 				Since pruning can't be done safely for your build, it will be skipped. To fix this you
 				must upgrade your version of pnpm to 8.15.6 or higher.
-
-				https://devcenter.heroku.com/articles/nodejs-support
 			EOF
 			build_data::set_raw "skipped_prune" "true"
 			return
