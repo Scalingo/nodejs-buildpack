@@ -105,7 +105,7 @@ create_meteor_settings_profile() {
   fi
 
   if [ -n "${settings}" ] ; then
-    header "${settings} detected, METEOR_SETTINGS will be set at runtime."
+    output::step "${settings} detected, METEOR_SETTINGS will be set at runtime."
     cat > "$build_dir"/.profile.d/meteor-settings.sh <<EOF
     #!/bin/sh
 
@@ -159,7 +159,7 @@ install_phantomjs_linux() {
 
   if [ -n "$phantom_dir" ] ; then
     pushd $phantom_dir > /dev/null
-    header "Phantomjs installation"
+    output::step "Phantomjs installation"
     node install.js 2>&1 | grep -v "${build_dir}" | grep -v '%' | output "$LOG_FILE"
     info "Phantomjs installed and ready"
     popd > /dev/null
@@ -203,10 +203,10 @@ install_meteor_dist() {
 
   tarball_url="https://d3sqy0vbqsdhku.cloudfront.net/packages-bootstrap/${cdn_release}/meteor-bootstrap-${platform}.tar.gz"
 
-  header "Downloading Meteor distribution"
+  output::step "Downloading Meteor distribution"
   curl --silent --fail "${tarball_url}" | tar -xzf - -C "${METEOR_HOME}" -o
 
-  header "Meteor ${release} has been installed."
+  output::step "Meteor ${release} has been installed."
 }
 
 install_meteor() {
@@ -230,7 +230,7 @@ install_meteor() {
     mkdir -p ${METEOR_HOME}
 
     if [ "x${cached_meteor_version}" != "x" ] ; then
-      header "Upgrading Meteor from ${cached_meteor_version} to ${meteor_version}"
+      output::step "Upgrading Meteor from ${cached_meteor_version} to ${meteor_version}"
     fi
 
     if [ -d "${meteor_build_cache_dir}" ] ; then
@@ -239,7 +239,7 @@ install_meteor() {
     fi
 
     install_meteor_dist $meteor_version
-    header "Meteor installed → $meteor_version"
+    output::step "Meteor installed → $meteor_version"
   else
     info "Meteor installed from cache → $meteor_version"
   fi
