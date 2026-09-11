@@ -160,8 +160,12 @@ install_phantomjs_linux() {
   if [ -n "$phantom_dir" ] ; then
     pushd $phantom_dir > /dev/null
     output::step "Phantomjs installation"
-    node install.js 2>&1 | grep -v "${build_dir}" | grep -v '%' | output "$LOG_FILE"
-    info "Phantomjs installed and ready"
+    node install.js 2>&1 \
+        | tee --append "${LOG_FILE}" \
+        | grep -v "${build_dir}" \
+        | grep -v '%' \
+        | output::indent
+    output::step "Phantomjs installed and ready"
     popd > /dev/null
   fi
 }
@@ -195,7 +199,7 @@ install_meteor_dist() {
 
   # If you already have a tropohouse/warehouse, we do a clean install here:
   if [ -e "$METEOR_HOME/.meteor" ]; then
-    info "Removing your existing Meteor installation."
+    output::step "Removing your existing Meteor installation."
     rm -rf "$METEOR_HOME/.meteor"
   fi
 
@@ -234,14 +238,14 @@ install_meteor() {
     fi
 
     if [ -d "${meteor_build_cache_dir}" ] ; then
-      info "Meteor build cache purged"
+      output::step "Meteor build cache purged"
       rm -rf "${meteor_build_cache_dir}"
     fi
 
     install_meteor_dist $meteor_version
     output::step "Meteor installed → $meteor_version"
   else
-    info "Meteor installed from cache → $meteor_version"
+    output::step "Meteor installed from cache → $meteor_version"
   fi
 }
 
@@ -263,20 +267,24 @@ remove_mobile_platforms() {
 }
 
 install_meteor_npm_package_json() {
-  build_dir=$1
-  cache_dir=$2
+    build_dir="${1}"
+    cache_dir="${2}"
 
-  pushd "$build_dir/.app-build/bundle/programs/server" >/dev/null
-  npm install --unsafe-perm --userconfig $build_dir/.npmrc 2>&1 | output "$LOG_FILE"
-  (npm ls --depth=0 | tail -n +2 || true) 2>/dev/null | output "$LOG_FILE"
-  popd >/dev/null
+    pushd "${build_dir}/.app-build/bundle/programs/server" >/dev/null
+    npm install --unsafe-perm --userconfig ${build_dir}/.npmrc 2>&1 \
+        | tee --append "${LOG_FILE}" \
+        | output::indent
+    (npm ls --depth=0 | tail -n +2 || true) 2>/dev/null \
+        | tee --append "${LOG_FILE}" \
+        | output::indent
+    popd >/dev/null
 }
 
 cache_meteor_install() {
   build_dir=$1
   cache_dir=$2
   meteor_install=$3
-  info "Caching meteor runtime for future builds"
+  output::step "Caching meteor runtime for future builds"
 
   # If first build or new version of meteor, caching meteor install
   if [[ ! -e "$cache_dir/meteor-version" ]] || [[ "$meteor_version" != "$(cat $cache_dir/meteor-version)" ]] ; then
@@ -314,18 +322,18 @@ build_meteor_app() {
     build_flags="--debug ${build_flags}"
   fi
 
-  info "Building Meteor Application - may take some time, be patient..."
+  output::step "Building Meteor Application - may take some time, be patient..."
 
   HOME=$METEOR_HOME meteor build $build_flags 2>&1 | \
     grep -v "under your source tree" | \
     grep -v "interpreted as source code" | \
     grep -v "a different directory instead" | \
     grep -v "meteor build ../output" | \
-    output "$LOG_FILE"
+    output::step "$LOG_FILE"
 
   install_meteor_npm_package_json "$build_dir" "$cache_dir"
   cache_meteor_install "$build_dir" "$cache_dir" "$METEOR_HOME"
-  info "Application built"
+  output::step "Application built"
   install_phantomjs_linux $build_dir
   create_meteor_settings_profile $build_dir
   create_meteor_profile $build_dir
