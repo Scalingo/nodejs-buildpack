@@ -161,7 +161,7 @@ install_phantomjs_linux() {
     pushd $phantom_dir > /dev/null
     output::step "Phantomjs installation"
     node install.js 2>&1 \
-        | tee "${LOG_FILE}" \
+        | tee --append "${LOG_FILE}" \
         | grep -v "${build_dir}" \
         | grep -v '%' \
         | output::indent
