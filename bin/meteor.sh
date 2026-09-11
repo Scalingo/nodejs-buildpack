@@ -160,7 +160,11 @@ install_phantomjs_linux() {
   if [ -n "$phantom_dir" ] ; then
     pushd $phantom_dir > /dev/null
     output::step "Phantomjs installation"
-    node install.js 2>&1 | grep -v "${build_dir}" | grep -v '%' | output::step "$LOG_FILE"
+    node install.js 2>&1 \
+        | tee "${LOG_FILE}" \
+        | grep -v "${build_dir}" \
+        | grep -v '%' \
+        | output::indent
     output::step "Phantomjs installed and ready"
     popd > /dev/null
   fi
@@ -263,13 +267,17 @@ remove_mobile_platforms() {
 }
 
 install_meteor_npm_package_json() {
-  build_dir=$1
-  cache_dir=$2
+    build_dir="${1}"
+    cache_dir="${2}"
 
-  pushd "$build_dir/.app-build/bundle/programs/server" >/dev/null
-  npm install --unsafe-perm --userconfig $build_dir/.npmrc 2>&1 | output::step "$LOG_FILE"
-  (npm ls --depth=0 | tail -n +2 || true) 2>/dev/null | output::step "$LOG_FILE"
-  popd >/dev/null
+    pushd "${build_dir}/.app-build/bundle/programs/server" >/dev/null
+    npm install --unsafe-perm --userconfig ${build_dir}/.npmrc 2>&1 \
+        | tee --append "${LOG_FILE}" \
+        | output::indent
+    (npm ls --depth=0 | tail -n +2 || true) 2>/dev/null \
+        | tee --append "${LOG_FILE}" \
+        | output::indent
+    popd >/dev/null
 }
 
 cache_meteor_install() {
