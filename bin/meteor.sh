@@ -324,12 +324,13 @@ build_meteor_app() {
 
   output::step "Building Meteor Application - may take some time, be patient..."
 
-  HOME=$METEOR_HOME meteor build $build_flags 2>&1 | \
-    grep -v "under your source tree" | \
-    grep -v "interpreted as source code" | \
-    grep -v "a different directory instead" | \
-    grep -v "meteor build ../output" | \
-    output::step "$LOG_FILE"
+  HOME=$METEOR_HOME meteor build $build_flags 2>&1 \
+    | tee --append "${LOG_FILE}" \
+    | grep -v "under your source tree" \
+    | grep -v "interpreted as source code" \
+    | grep -v "a different directory instead" \
+    | grep -v "meteor build ../output" \
+    | output::indent
 
   install_meteor_npm_package_json "$build_dir" "$cache_dir"
   cache_meteor_install "$build_dir" "$cache_dir" "$METEOR_HOME"
