@@ -18,6 +18,22 @@
 ## [Unreleased]
 
 
+## [v374] - 2026-10-15
+
+- Added Node.js 26.12.0 (linux-amd64)
+- Added Node.js 24.22.0 (linux-amd64)
+- Increased the Node.js download timeout from 30 to 120 seconds to avoid failing builds on slow connections. ([#1824](https://github.com/heroku/heroku-buildpack-nodejs/pull/1824))
+
+## [v373] - 2026-10-08
+
+- Added Node.js 26.11.1 (linux-amd64)
+- Added Node.js 26.11.0 (linux-amd64)
+
+## [v372] - 2026-10-06
+
+- Apps with a `pnpm-lock.yaml` that don't declare a pnpm version now install pnpm `12.x` instead of `latest`. ([#1820](https://github.com/heroku/heroku-buildpack-nodejs/pull/1820))
+- Disabled npm audit and funding notices during builds using npm's global config. These can still be overridden via a project `.npmrc` or by setting the `npm_config_audit`/`npm_config_fund` config vars. ([#1819](https://github.com/heroku/heroku-buildpack-nodejs/pull/1819))
+
 ## [v371] - 2026-10-02
 
 - Fixed the pnpm 12 flags used to allow installing dev dependencies with `NODE_ENV=production`. ([#1784](https://github.com/heroku/heroku-buildpack-nodejs/pull/1784))
@@ -1453,7 +1469,10 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v371...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v374...main
+[v374]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v373...v374
+[v373]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v372...v373
+[v372]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v371...v372
 [v371]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v370...v371
 [v370]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v369...v370
 [v369]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v368...v369
