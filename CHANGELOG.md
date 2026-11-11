@@ -17,6 +17,9 @@
 
 ## [Unreleased]
 
+- Added Node.js 26.13.1 (linux-amd64)
+- Added Node.js 24.22.3 (linux-amd64)
+- Added Node.js 22.23.5 (linux-amd64)
 
 ## [v377] - 2026-10-29
 
