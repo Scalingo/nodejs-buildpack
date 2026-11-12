@@ -18,6 +18,17 @@
 ## [Unreleased]
 
 
+## [v379] - 2026-11-11
+
+- Added Node.js 26.13.1 (linux-amd64)
+- Added Node.js 24.22.3 (linux-amd64)
+- Added Node.js 22.23.5 (linux-amd64)
+- Node.js download failures now link to the Cloudflare status page and show the response headers from the most recent response received. ([#1840](https://github.com/heroku/heroku-buildpack-nodejs/pull/1840))
+
+## [v378] - 2026-11-05
+
+- The default Node.js version is now 26.x, the current Active LTS release line. ([#1851](https://github.com/heroku/heroku-buildpack-nodejs/pull/1851))
+
 ## [v377] - 2026-10-29
 
 - Added Node.js 26.13.0 (linux-amd64)
@@ -1484,7 +1495,9 @@ Accepts `cacheDirectories` array in package.json to override default `node_modul
 
 - Documented at https://devcenter.heroku.com/articles/nodejs-support#cache-behavior
 
-[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v377...main
+[unreleased]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v379...main
+[v379]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v378...v379
+[v378]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v377...v378
 [v377]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v376...v377
 [v376]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v375...v376
 [v375]: https://github.com/heroku/heroku-buildpack-nodejs/compare/v374...v375
